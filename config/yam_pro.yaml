@@ -1,0 +1,64 @@
+# YAM Pro configuration for the diagnostics toolkit.
+# Motor layout, CAN IDs, and motor types are taken from i2rt's config/yam_pro.yml.
+# Joint ranges are from the i2rt YAM Pro spec sheet.
+
+name: YAM_PRO
+
+can:
+  interface: gs_usb         # our adapter: CANable/candleLight (raw USB, no COM port)
+  channel: "0"              # first gs_usb device
+  bitrate: 1000000          # 1 Mbit/s (all nodes must match)
+  extended_id: false        # standard 11-bit frames
+  poll_timeout_s: 0.01      # wait per motor for a feedback reply (i2rt uses ~10 ms)
+  poll_retries: 15          # retries before declaring a motor unresponsive
+
+# Joints in ascending CAN-ID order (the chain requires strictly ascending IDs).
+# tx_id = motor_id ; rx_id = motor_id + 16 (0x10 + id)   [MIT mode, ReceiveMode.p16]
+joints:
+  - {name: J1, motor_id: 0x01, motor_type: DM4340, role: "base rotation",   range_deg: [-150, 180]}
+  - {name: J2, motor_id: 0x02, motor_type: DM4340, role: "shoulder",        range_deg: [0, 210]}
+  - {name: J3, motor_id: 0x03, motor_type: DM4340, role: "shoulder/upper",  range_deg: [0, 180]}
+  - {name: J4, motor_id: 0x04, motor_type: DM4310, role: "elbow/forearm",   range_deg: [-97, 90]}
+  - {name: J5, motor_id: 0x05, motor_type: DM4310, role: "wrist",           range_deg: [-90, 90]}
+  - {name: J6, motor_id: 0x06, motor_type: DM4310, role: "wrist/tool roll", range_deg: [-120, 120]}
+
+# End effectors differ by arm role (J1-J6 are identical on both):
+#   follower -> DM4310 gripper (LINEAR_4310) at CAN id 0x07  (actuated output)
+#   leader   -> passive-encoder trigger handle at CAN id 0x50E (read-only input)
+# Select with `yam-test --arm follower|leader ...`, or let `--arm auto` detect it.
+end_effectors:
+  follower:
+    name: gripper
+    motor_id: 0x07
+    motor_type: DM4310
+    enabled: true
+  leader:
+    name: trigger
+    encoder_id: 0x50E      # 1294; passive encoder, replies on 0x50F
+    range_rad: 0.7         # +/- travel mapped to trigger 0..1
+    enabled: true
+
+# Reference control gains (from i2rt yam_pro.yml). NOT used for motion tests —
+# the tool holds joints at safe low gains. Kept here for documentation/records.
+reference_gains:
+  kp: [80.0, 80.0, 80.0, 40.0, 10.0, 10.0]
+  kd: [5.0,  5.0,  5.0,  1.5,  1.5,  1.5]
+  gravity_comp_factor: [1.0, 1.1, 1.1, 1.2, 1.0, 1.0]
+  grav_comp_kd:        [0.1, 0.1, 0.1, 0.3, 0.05, 0.05]
+  coulomb_friction:    [0.3, 0.3, 0.3, 0.06, 0.06, 0.06]
+
+# Diagnostic thresholds (tune from your own maintenance history).
+thresholds:
+  temp_warn_c: 55           # warn above this idle/steady temperature
+  temp_fail_c: 75           # fail (DM motors fault ~80 C+; stay below)
+  # Safe gains used ONLY during optional --move range checks: gentle, low-speed.
+  move_kp: 3.0
+  move_kd: 1.0
+  move_settle_s: 1.0
+  # Live jog/exercise safety envelope
+  live_kp_scale: 0.5        # hold stiffness = this x reference kp (softer spring)
+  live_max_vel_deg: 20.0    # slew limit: commanded motion never exceeds this deg/s
+  live_rate_hz: 100.0       # control-loop rate (keeps motors past 400 ms timeout)
+  live_step_deg: 2.0        # jog: degrees moved per key press
+  live_exercise_amp_deg: 10.0   # exercise: oscillation amplitude
+  live_exercise_period_s: 4.0   # exercise: oscillation period

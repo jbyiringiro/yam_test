@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yam-arm-test"
+version = "0.1.0"
+description = "Standalone CAN-bus diagnostics and test suite for i2rt YAM Pro robot arms (DM4310 / DM4340 motors)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "python-can>=4.3.1",
+    "PyYAML>=6.0",
+    "rich>=13.7.0",
+    "gs_usb>=0.3.0",        # our adapter (CANable/candleLight)
+    "libusb-package>=1.0",  # bundled libusb for Windows
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+yam-test = "arm_test.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

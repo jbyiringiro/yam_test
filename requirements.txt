@@ -1,0 +1,20 @@
+# Core CAN + config
+python-can>=4.3.1        # adapter-agnostic CAN bus access
+PyYAML>=6.0             # config files (yam_pro.yaml)
+rich>=13.7.0            # colored terminal output / tables for diagnostics
+
+# Our adapter: gs_usb (CANable / candleLight). REQUIRED here.
+gs_usb>=0.3.0           # gs_usb backend
+libusb-package>=1.0     # bundles libusb so Windows finds it without a manual DLL
+# On Windows you must also bind the adapter to WinUSB with Zadig once — see
+# docs/wiring-and-can.md#adapters. No COM port is used (gs_usb is raw USB).
+
+# Other backends (only if you ever use a different adapter)
+# ---------------------------------------------------------
+# CANable (slcan firmware) ................ built into python-can (needs COM port)
+# PEAK PCAN-USB ........................... driver from peak-system.com
+# Kvaser .................................. Kvaser CANlib driver
+# 8devices USB2CAN ........................ install usb2can driver
+
+# Dev / testing (offline, no hardware needed)
+pytest>=8.0
