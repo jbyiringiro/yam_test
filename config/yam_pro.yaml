@@ -62,3 +62,6 @@ thresholds:
   live_step_deg: 2.0        # jog: degrees moved per key press
   live_exercise_amp_deg: 10.0   # exercise: oscillation amplitude
   live_exercise_period_s: 4.0   # exercise: oscillation period
+  live_torque_limit_nm: 4.0     # jog/exercise: freeze a joint's command above this
+                                # torque, so it can't build current until the supply trips.
+                                # Raise cautiously if a joint genuinely needs more to move.

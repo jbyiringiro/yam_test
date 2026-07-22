@@ -259,6 +259,7 @@ def run_live(
     th = cfg.thresholds
     dt = 1.0 / max(1.0, th.live_rate_hz)
     max_step_per_cycle = th.live_max_vel_deg * dt  # slew limit -> deg per cycle
+    torque_limit = th.live_torque_limit_nm         # freeze command above this torque
 
     motors = cfg.all_motors(include_gripper=include_gripper)
     if joints_filter:
@@ -370,6 +371,7 @@ def run_live(
                 # ---- command / read each motor -----------------------------
                 faulted = None
                 responded_now = 0
+                torque_capped = []
                 for s in states:
                     if not s.present and moving:
                         continue
@@ -377,11 +379,21 @@ def run_live(
                         fb = chain.read(s.joint.motor_id, s.joint.motor_type,
                                         _LOOP_TIMEOUT, _LOOP_RETRIES)
                     else:
-                        # slew command_deg toward desired_deg (speed limit)
-                        delta = s.desired_deg - s.command_deg
-                        if abs(delta) > max_step_per_cycle:
-                            delta = math.copysign(max_step_per_cycle, delta)
-                        s.command_deg = s.clamp(s.command_deg + delta)
+                        # Torque safety: if this joint is already pushing past the
+                        # limit (e.g. a shoulder lagging against gravity), STOP
+                        # chasing the target — freeze the command at the measured
+                        # position. This bounds current so it can't build until the
+                        # power supply trips (the J3 shutdown failure mode).
+                        if s.fb is not None and abs(s.fb.torque) > torque_limit:
+                            s.command_deg = s.clamp(rad_to_deg(s.fb.position))
+                            s.desired_deg = s.command_deg
+                            torque_capped.append(s.joint.name)
+                        else:
+                            # slew command_deg toward desired_deg (speed limit)
+                            delta = s.desired_deg - s.command_deg
+                            if abs(delta) > max_step_per_cycle:
+                                delta = math.copysign(max_step_per_cycle, delta)
+                            s.command_deg = s.clamp(s.command_deg + delta)
                         fb = chain.command(
                             s.joint.motor_id, s.joint.motor_type,
                             position=deg_to_rad(s.command_deg),
@@ -396,6 +408,13 @@ def run_live(
                                                       fb.temp_mos, fb.temp_rotor)
                         if moving and not estop and not fb.healthy and fb.error_code != 0:
                             faulted = (s.joint.name, fb.error_text)
+
+                # ---- torque cap feedback -----------------------------------
+                if torque_capped and not estop:
+                    note = (f"Torque limit ({torque_limit:.1f} N·m) reached on "
+                            f"{', '.join(sorted(set(torque_capped)))} — holding, not "
+                            "pushing harder. Raise supply current, reduce load, or "
+                            "back-drive by hand to move further.")
 
                 # ---- arm-loss detection (post-mortem) ----------------------
                 # If everything was replying and now nothing is, the whole bus

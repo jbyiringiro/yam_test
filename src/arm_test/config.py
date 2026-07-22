@@ -49,6 +49,8 @@ class Thresholds:
     live_step_deg: float = 2.0     # jog step per key press
     live_exercise_amp_deg: float = 10.0   # exercise oscillation amplitude
     live_exercise_period_s: float = 4.0   # exercise oscillation period
+    live_torque_limit_nm: float = 4.0     # freeze a joint's command above this torque
+                                          # (prevents current runaway that trips the supply)
 
 
 @dataclass
@@ -147,6 +149,7 @@ def load_config(path: Optional[str] = None, arm: str = "follower") -> ArmConfig:
             live_step_deg=float(th.get("live_step_deg", 2.0)),
             live_exercise_amp_deg=float(th.get("live_exercise_amp_deg", 10.0)),
             live_exercise_period_s=float(th.get("live_exercise_period_s", 4.0)),
+            live_torque_limit_nm=float(th.get("live_torque_limit_nm", 4.0)),
         ),
         reference_gains=raw.get("reference_gains", {}),
     )
