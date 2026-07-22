@@ -176,10 +176,12 @@ overload on a specific joint.
 
 **Safety envelope** (all configurable in [config/yam_pro.yaml](config/yam_pro.yaml)):
 targets start at the measured position (no jump on enable) · a **slew-rate limiter**
-caps commanded speed (default 20°/s) regardless of gains · targets are soft-clamped
-inside each joint's range · hold stiffness is a fraction of the reference gains ·
-**any motor fault auto-triggers E-STOP** · motors are **always disabled on exit**
-(quit, Ctrl+C, or error). Start with `monitor`, then `jog`.
+caps commanded speed (default 20°/s) regardless of gains · a **torque limit**
+(default 4 N·m) freezes a joint's command when it strains — so a lagging joint
+can't build current until the power supply trips · targets are soft-clamped inside
+each joint's range · hold stiffness is a fraction of the reference gains · **any
+motor fault auto-triggers E-STOP** · motors are **always disabled on exit** (quit,
+Ctrl+C, or error). Start with `monitor`, then `jog`.
 
 ## Repository layout
 
