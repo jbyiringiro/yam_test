@@ -192,6 +192,47 @@ def _render(cfg: ArmConfig, states: list[JointLive], *, mode: str, active: int,
 
 
 # ---------------------------------------------------------------------------
+# Session report (post-mortem when the arm faults or dies mid-move)
+# ---------------------------------------------------------------------------
+def _write_live_report(path, cfg, mode, states, peak_torque, peak_temp,
+                       end_reason, active_name) -> None:
+    import json
+    import os
+    from datetime import datetime, timezone
+
+    joints = []
+    for s in states:
+        fb = s.fb
+        joints.append({
+            "name": s.joint.name,
+            "motor_id": s.joint.motor_id,
+            "type": s.joint.motor_type.value,
+            "last_pos_deg": round(rad_to_deg(fb.position), 2) if fb else None,
+            "last_vel_dps": round(rad_to_deg(fb.velocity), 2) if fb else None,
+            "last_torque_nm": round(fb.torque, 3) if fb else None,
+            "last_temp_mos_c": fb.temp_mos if fb else None,
+            "last_temp_rotor_c": fb.temp_rotor if fb else None,
+            "last_state": fb.error_text if fb else "no reply",
+            "peak_torque_nm": round(peak_torque.get(s.joint.name, 0.0), 3),
+            "peak_temp_c": peak_temp.get(s.joint.name, 0),
+        })
+    doc = {
+        "title": "YAM live session report",
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "arm": cfg.arm,
+        "mode": mode,
+        "ended": end_reason,
+        "active_joint_at_end": active_name,
+        "joints": joints,
+    }
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(doc, f, indent=2)
+
+
+# ---------------------------------------------------------------------------
 # Main live loop
 # ---------------------------------------------------------------------------
 def run_live(
@@ -202,10 +243,13 @@ def run_live(
     joints_filter: Optional[list[str]] = None,
     amp_deg: Optional[float] = None,
     period_s: Optional[float] = None,
+    out: Optional[str] = None,
 ) -> None:
     """Run a live mode until the operator quits.
 
     mode: "monitor" | "jog" | "exercise".
+    out: path to write a JSON session report. Even without it, an abnormal end
+         (fault or the arm going silent mid-move) auto-saves to reports/.
     """
     from rich.live import Live
     from rich.console import Console
@@ -239,6 +283,12 @@ def run_live(
     amp = amp_deg if amp_deg is not None else th.live_exercise_amp_deg
     period = period_s if period_s is not None else th.live_exercise_period_s
     note = ""
+
+    # session tracking for the post-mortem report
+    peak_torque = {s.joint.name: 0.0 for s in states}
+    peak_temp = {s.joint.name: 0 for s in states}
+    end_reason = "user quit"
+    prev_responding = 0
 
     def enable_all() -> None:
         """Enable moving joints; seed targets at measured position."""
@@ -319,6 +369,7 @@ def run_live(
 
                 # ---- command / read each motor -----------------------------
                 faulted = None
+                responded_now = 0
                 for s in states:
                     if not s.present and moving:
                         continue
@@ -339,8 +390,25 @@ def run_live(
                         )
                     if fb is not None:
                         s.fb = fb
+                        responded_now += 1
+                        peak_torque[s.joint.name] = max(peak_torque[s.joint.name], abs(fb.torque))
+                        peak_temp[s.joint.name] = max(peak_temp[s.joint.name],
+                                                      fb.temp_mos, fb.temp_rotor)
                         if moving and not estop and not fb.healthy and fb.error_code != 0:
                             faulted = (s.joint.name, fb.error_text)
+
+                # ---- arm-loss detection (post-mortem) ----------------------
+                # If everything was replying and now nothing is, the whole bus
+                # went dark mid-move — almost always motor power cut / tripped
+                # supply, not a single-motor fault. Capture what was happening.
+                if (moving and prev_responding > 0 and responded_now == 0
+                        and end_reason == "user quit"):
+                    end_reason = (f"arm went silent while active joint was "
+                                  f"{states[active].joint.name} — all motors stopped "
+                                  "replying (likely motor-power cut / tripped supply / bus fault)")
+                    note = ("ARM LOST — no motors replying. Check power + connectors. "
+                            "Press 'q' to save the report.")
+                prev_responding = responded_now
 
                 # ---- leader trigger handle (read-only) ---------------------
                 trigger = None
@@ -354,6 +422,8 @@ def run_live(
                     estop = True
                     disable_all()
                     note = f"FAULT on {faulted[0]}: {faulted[1]} — auto E-STOP. Press 'e' to recover."
+                    if end_reason == "user quit":
+                        end_reason = f"fault on {faulted[0]}: {faulted[1]}"
 
                 live.update(_render(cfg, states, mode=mode, active=active, step=step,
                                     estop=estop, moving=moving, note=note, trigger=trigger))
@@ -368,4 +438,17 @@ def run_live(
         if moving:
             console.print("Disabling motors...")
             disable_all()
+        # Write a report if asked, or auto-save on any abnormal end.
+        report_path = out
+        if report_path is None and end_reason != "user quit":
+            report_path = f"reports/live-fault-{cfg.arm}-{mode}.json"
+        if report_path:
+            try:
+                _write_live_report(report_path, cfg, mode, states, peak_torque,
+                                   peak_temp, end_reason,
+                                   states[active].joint.name if states else None)
+                console.print(f"[bold]Session report:[/bold] {report_path}")
+                console.print(f"  ended: {end_reason}")
+            except Exception as exc:
+                console.print(f"[yellow]Could not write report: {exc}[/yellow]")
         console.print("[bold]Live session ended.[/bold]")

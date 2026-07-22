@@ -233,6 +233,7 @@ def cmd_live(args) -> int:
             joints_filter=joints_filter,
             amp_deg=args.amp,
             period_s=args.period,
+            out=args.out,
         )
     finally:
         bus.shutdown()

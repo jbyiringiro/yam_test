@@ -158,6 +158,22 @@ trips. In teleoperation the leader's *trigger* drives this same gripper
 `,`/`.` change step size · `h` hold at current position · `SPACE` **E-STOP** ·
 `e` re-enable · `q` quit.
 
+**Session report / crash log.** Live now records what each joint was doing and
+its **peak torque + temperature**. If the arm **faults** or **goes silent
+mid-move** (e.g. a joint spikes current and the power supply trips), it
+auto-saves a report to `reports/live-fault-<arm>-<mode>.json` capturing the
+last-known state and which joint was active — so you can see *what happened*
+even though a dead bus can't be read live. Add `--out reports\my.json` to always
+save one:
+
+```powershell
+.\yam.bat live --mode jog --out reports\jog-session.json
+```
+
+The report shows, per joint: last position/velocity/**torque**/temperature/fault,
+plus session **peak torque** and **peak temp** — the evidence for a bind or
+overload on a specific joint.
+
 **Safety envelope** (all configurable in [config/yam_pro.yaml](config/yam_pro.yaml)):
 targets start at the measured position (no jump on enable) · a **slew-rate limiter**
 caps commanded speed (default 20°/s) regardless of gains · targets are soft-clamped
