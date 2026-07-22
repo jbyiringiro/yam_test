@@ -234,6 +234,7 @@ def cmd_live(args) -> int:
             amp_deg=args.amp,
             period_s=args.period,
             out=args.out,
+            torque_limit=args.torque_limit,
         )
     finally:
         bus.shutdown()
@@ -480,6 +481,9 @@ def build_parser() -> argparse.ArgumentParser:
     lv.add_argument("--include-gripper", action="store_true", help="include the gripper")
     lv.add_argument("--amp", type=float, default=None, help="exercise amplitude (deg)")
     lv.add_argument("--period", type=float, default=None, help="exercise period (s)")
+    lv.add_argument("--torque-limit", type=float, default=None,
+                    help="max torque (N·m) before a joint's command freezes; raise so "
+                         "shoulders can move against gravity (watch for supply trips)")
     lv.set_defaults(func=cmd_live)
 
     return p

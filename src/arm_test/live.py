@@ -244,12 +244,15 @@ def run_live(
     amp_deg: Optional[float] = None,
     period_s: Optional[float] = None,
     out: Optional[str] = None,
+    torque_limit: Optional[float] = None,
 ) -> None:
     """Run a live mode until the operator quits.
 
     mode: "monitor" | "jog" | "exercise".
     out: path to write a JSON session report. Even without it, an abnormal end
          (fault or the arm going silent mid-move) auto-saves to reports/.
+    torque_limit: override config's live_torque_limit_nm (higher = shoulders can
+         move against gravity, but watch for the supply tripping).
     """
     from rich.live import Live
     from rich.console import Console
@@ -259,7 +262,8 @@ def run_live(
     th = cfg.thresholds
     dt = 1.0 / max(1.0, th.live_rate_hz)
     max_step_per_cycle = th.live_max_vel_deg * dt  # slew limit -> deg per cycle
-    torque_limit = th.live_torque_limit_nm         # freeze command above this torque
+    # freeze command above this torque (CLI override wins over config)
+    torque_limit = th.live_torque_limit_nm if torque_limit is None else torque_limit
 
     motors = cfg.all_motors(include_gripper=include_gripper)
     if joints_filter:
@@ -410,11 +414,14 @@ def run_live(
                             faulted = (s.joint.name, fb.error_text)
 
                 # ---- torque cap feedback -----------------------------------
-                if torque_capped and not estop:
-                    note = (f"Torque limit ({torque_limit:.1f} N·m) reached on "
-                            f"{', '.join(sorted(set(torque_capped)))} — holding, not "
-                            "pushing harder. Raise supply current, reduce load, or "
-                            "back-drive by hand to move further.")
+                if not estop:
+                    if torque_capped:
+                        note = (f"Torque limit ({torque_limit:.1f} N·m) reached on "
+                                f"{', '.join(sorted(set(torque_capped)))} — holding, not "
+                                "pushing harder. Raise --torque-limit, reduce load, or "
+                                "back-drive by hand to move further.")
+                    elif note.startswith("Torque limit"):
+                        note = ""  # clear stale cap message once the joint eases off
 
                 # ---- arm-loss detection (post-mortem) ----------------------
                 # If everything was replying and now nothing is, the whole bus
