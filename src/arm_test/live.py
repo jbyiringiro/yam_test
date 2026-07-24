@@ -109,7 +109,8 @@ def _joint_gains(cfg: ArmConfig, index: int) -> tuple[float, float]:
 # Rendering
 # ---------------------------------------------------------------------------
 def _render(cfg: ArmConfig, states: list[JointLive], *, mode: str, active: int,
-            step: float, estop: bool, moving: bool, note: str = "", trigger=None):
+            step: float, estop: bool, moving: bool, note: str = "", trigger=None,
+            err_frames: int = 0, max_loop_ms: float = 0.0):
     from rich.table import Table
     from rich.panel import Panel
     from rich.console import Group
@@ -185,7 +186,13 @@ def _render(cfg: ArmConfig, states: list[JointLive], *, mode: str, active: int,
                         f"(gripper_cmd={trigger.gripper_cmd:.2f})  buttons {btns}")
         status = f"{status}\n{trig_line}"
 
-    head = f"{status}\n{keys}"
+    # Bus-health line: CAN error frames (EMI/wiring) and worst loop period (stall).
+    ecol = "red" if err_frames else "green"
+    lcol = "red" if max_loop_ms > 300 else ("yellow" if max_loop_ms > 100 else "green")
+    head = (f"{status}\n"
+            f"bus: [{ecol}]CAN errors {err_frames}[/{ecol}]   "
+            f"[{lcol}]max loop {max_loop_ms:.0f} ms[/{lcol}] "
+            f"(>400 ms would itself cause a 0xD comms-loss fault)\n{keys}")
     if note:
         head += f"\n[yellow]{note}[/yellow]"
     title = f"YAM Pro {cfg.arm} — live {mode}"
@@ -196,7 +203,7 @@ def _render(cfg: ArmConfig, states: list[JointLive], *, mode: str, active: int,
 # Session report (post-mortem when the arm faults or dies mid-move)
 # ---------------------------------------------------------------------------
 def _write_live_report(path, cfg, mode, states, peak_torque, peak_temp,
-                       end_reason, active_name) -> None:
+                       end_reason, active_name, can_errors=0, max_loop_ms=0.0) -> None:
     import json
     import os
     from datetime import datetime, timezone
@@ -224,6 +231,8 @@ def _write_live_report(path, cfg, mode, states, peak_torque, peak_temp,
         "mode": mode,
         "ended": end_reason,
         "active_joint_at_end": active_name,
+        "can_error_frames": can_errors,
+        "max_loop_ms": round(max_loop_ms, 1),
         "joints": joints,
     }
     d = os.path.dirname(path)
@@ -297,6 +306,9 @@ def run_live(
     peak_temp = {s.joint.name: 0 for s in states}
     end_reason = "user quit"
     prev_responding = 0
+    err0 = getattr(chain, "error_frames", 0)   # baseline CAN error-frame count
+    max_loop_ms = 0.0                           # worst loop period (stall detector)
+    last_cycle = None
 
     def enable_all() -> None:
         """Enable moving joints; seed targets at measured position."""
@@ -334,6 +346,12 @@ def run_live(
                   screen=False) as live:
             while True:
                 loop_start = time.perf_counter()
+                # loop-period / stall tracking: a cycle longer than the motors'
+                # ~400 ms comms window would itself cause a 0xD loss-of-comm fault.
+                if last_cycle is not None:
+                    period_ms = (loop_start - last_cycle) * 1000.0
+                    max_loop_ms = max(max_loop_ms, period_ms)
+                last_cycle = loop_start
 
                 # ---- input --------------------------------------------------
                 key = _read_key()
@@ -483,8 +501,10 @@ def run_live(
                     if end_reason == "user quit":
                         end_reason = f"fault on {faulted[0]}: {faulted[1]}"
 
+                err_now = getattr(chain, "error_frames", 0) - err0
                 live.update(_render(cfg, states, mode=mode, active=active, step=step,
-                                    estop=estop, moving=moving, note=note, trigger=trigger))
+                                    estop=estop, moving=moving, note=note, trigger=trigger,
+                                    err_frames=err_now, max_loop_ms=max_loop_ms))
 
                 # ---- pace the loop -----------------------------------------
                 elapsed = time.perf_counter() - loop_start
@@ -504,7 +524,9 @@ def run_live(
             try:
                 _write_live_report(report_path, cfg, mode, states, peak_torque,
                                    peak_temp, end_reason,
-                                   states[active].joint.name if states else None)
+                                   states[active].joint.name if states else None,
+                                   can_errors=getattr(chain, "error_frames", 0) - err0,
+                                   max_loop_ms=max_loop_ms)
                 console.print(f"[bold]Session report:[/bold] {report_path}")
                 console.print(f"  ended: {end_reason}")
             except Exception as exc:

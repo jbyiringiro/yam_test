@@ -25,6 +25,7 @@ class MotorChain:
     def __init__(self, bus, cfg: ArmConfig):
         self.bus = bus
         self.cfg = cfg
+        self.error_frames = 0   # running count of CAN error frames seen (bus health)
 
     # ---- low-level send/recv ---------------------------------------------
     def _send(self, arbitration_id: int, data: bytes) -> None:
@@ -64,6 +65,7 @@ class MotorChain:
                 self._send(dm_motor.tx_arbitration_id(motor_id), data)
                 continue
             if getattr(msg, "is_error_frame", False):
+                self.error_frames += 1
                 continue
             if msg.arbitration_id == want_rx and len(msg.data) >= 8:
                 return Feedback.decode(bytes(msg.data), motor_type)
@@ -142,6 +144,7 @@ class MotorChain:
                 )
                 continue
             if getattr(msg, "is_error_frame", False):
+                self.error_frames += 1
                 continue
             if msg.arbitration_id == want_rx and len(msg.data) >= 6:
                 return enc.decode_encoder(bytes(msg.data), range_rad)
