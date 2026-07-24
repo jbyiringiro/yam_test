@@ -81,6 +81,7 @@ class JointLive:
     center_deg: float = 0.0      # exercise oscillation center
     fb: Optional[Feedback] = None
     present: bool = False
+    stall_t0: Optional[float] = None  # when this joint started straining without moving
 
     @property
     def lo(self) -> float:
@@ -264,7 +265,8 @@ def run_live(
     max_step_per_cycle = th.live_max_vel_deg * dt  # slew limit -> deg per cycle
     # freeze command above this torque (CLI override wins over config)
     torque_limit = th.live_torque_limit_nm if torque_limit is None else torque_limit
-    max_follow_deg = th.live_max_follow_deg   # command may not outrun the motor
+    hold_torque = th.live_hold_torque_nm      # gentle budget for non-active joints
+    max_follow_deg = th.live_max_follow_deg   # fallback follow clamp (kp unknown)
 
     motors = cfg.all_motors(include_gripper=include_gripper)
     if joints_filter:
@@ -347,10 +349,18 @@ def run_live(
                         note = ""
                         enable_all()
                     elif moving and not estop:
-                        if key in ("LEFT",):
-                            active = (active - 1) % len(states)
-                        elif key in ("RIGHT",):
-                            active = (active + 1) % len(states)
+                        if key in ("LEFT", "RIGHT"):
+                            # Settle the joint we're leaving: park its target at its
+                            # measured position so it stops chasing a stale/unreachable
+                            # target (that background strain — e.g. J2 stuck at 0.2°
+                            # pulling 5 N·m while J3 was jogged — is what doubled the
+                            # current draw and tripped the supply).
+                            cur = states[active]
+                            if cur.fb is not None:
+                                cur.desired_deg = cur.clamp(rad_to_deg(cur.fb.position))
+                                cur.command_deg = cur.desired_deg
+                            active = (active - 1) % len(states) if key == "LEFT" \
+                                else (active + 1) % len(states)
                         elif key in ("UP", "+", "="):
                             s = states[active]
                             s.desired_deg = s.clamp(s.desired_deg + step)
@@ -384,37 +394,42 @@ def run_live(
                         fb = chain.read(s.joint.motor_id, s.joint.motor_type,
                                         _LOOP_TIMEOUT, _LOOP_RETRIES)
                     else:
-                        # Torque safety: if this joint is already pushing past the
-                        # limit (e.g. a shoulder lagging against gravity), STOP
-                        # chasing the target — freeze the command at the measured
-                        # position. This bounds current so it can't build until the
-                        # power supply trips (the J3 shutdown failure mode).
-                        # Per-joint limit never exceeds the motor's datasheet rated
-                        # torque (DM4310 = 3 N·m continuous), so raising the global
-                        # limit for the big shoulder motors can't cook the small ones.
+                        # Per-joint torque BUDGET. Only the joint you're actively
+                        # jogging gets the full limit; every other joint holds
+                        # gently. This is the key fix: two DM4340 shoulders pushing
+                        # hard at once exceeded the 15 A supply and tripped it. With
+                        # this split, only ONE joint ever draws high current.
+                        # The budget also never exceeds the motor's datasheet rated
+                        # torque (DM4310 = 3 N·m), so the small wrist motors stay safe.
+                        is_active = (mode == "jog" and s.index == active)
+                        budget = torque_limit if is_active else min(torque_limit, hold_torque)
                         rated = s.joint.motor_type.constants.rated_torque
-                        joint_limit = min(torque_limit, rated) if rated else torque_limit
-                        if s.fb is not None and abs(s.fb.torque) > joint_limit:
-                            s.command_deg = s.clamp(rad_to_deg(s.fb.position))
-                            s.desired_deg = s.command_deg
-                            torque_capped.append(s.joint.name)
-                        else:
-                            # slew command_deg toward desired_deg (speed limit)
-                            delta = s.desired_deg - s.command_deg
-                            if abs(delta) > max_step_per_cycle:
-                                delta = math.copysign(max_step_per_cycle, delta)
-                            s.command_deg = s.clamp(s.command_deg + delta)
+                        if rated:
+                            budget = min(budget, rated)
 
-                        # Following-error clamp: never let the command run more than
-                        # max_follow_deg ahead of where the motor actually is. Since
-                        # torque ~ kp * error, this bounds torque (and current) BY
-                        # CONSTRUCTION. Without it, a continuous jog outruns the motor,
-                        # the gap grows, torque climbs and the supply trips — while
-                        # step-by-step jogging works because the motor keeps catching up.
+                        # Following-error clamp derived from the budget: since
+                        # torque ~ kp * position_error, capping the error at
+                        # budget/kp bounds torque (and current) BY CONSTRUCTION.
+                        # This is why continuous jogging no longer trips the supply
+                        # (step-by-step worked before only because the motor kept
+                        # catching up and the error stayed small).
+                        max_follow = math.degrees(budget / s.kp) if s.kp > 0 else max_follow_deg
+
+                        # slew command_deg toward desired_deg (speed limit)
+                        delta = s.desired_deg - s.command_deg
+                        if abs(delta) > max_step_per_cycle:
+                            delta = math.copysign(max_step_per_cycle, delta)
+                        s.command_deg = s.clamp(s.command_deg + delta)
+
                         if s.fb is not None:
                             pos_now = rad_to_deg(s.fb.position)
-                            s.command_deg = max(pos_now - max_follow_deg,
-                                                min(pos_now + max_follow_deg, s.command_deg))
+                            lo, hi = pos_now - max_follow, pos_now + max_follow
+                            if s.command_deg > hi or s.command_deg < lo:
+                                # can't get closer without exceeding the budget:
+                                # this joint is at its torque ceiling (stalled vs load)
+                                if is_active:
+                                    torque_capped.append(s.joint.name)
+                            s.command_deg = max(lo, min(hi, s.command_deg))
                         fb = chain.command(
                             s.joint.motor_id, s.joint.motor_type,
                             position=deg_to_rad(s.command_deg),

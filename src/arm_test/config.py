@@ -49,12 +49,14 @@ class Thresholds:
     live_step_deg: float = 2.0     # jog step per key press
     live_exercise_amp_deg: float = 10.0   # exercise oscillation amplitude
     live_exercise_period_s: float = 4.0   # exercise oscillation period
-    live_torque_limit_nm: float = 4.0     # freeze a joint's command above this torque
-                                          # (prevents current runaway that trips the supply)
-    live_max_follow_deg: float = 5.0      # command may never run more than this far ahead
-                                          # of the measured position. Bounds torque by
-                                          # construction (torque ~ kp * error), so a
-                                          # continuous jog can't build a current spike.
+    live_torque_limit_nm: float = 6.0     # torque budget for the ACTIVELY-jogged joint
+                                          # (bounds its current; per-joint also capped at
+                                          # the motor's rated torque)
+    live_hold_torque_nm: float = 2.5      # gentle budget for all OTHER joints, so only one
+                                          # joint draws high current at a time (two shoulders
+                                          # at once tripped the 15 A supply)
+    live_max_follow_deg: float = 5.0      # fallback follow clamp when kp is unknown; normally
+                                          # the clamp is derived from torque budget / kp
 
 
 @dataclass
@@ -153,7 +155,8 @@ def load_config(path: Optional[str] = None, arm: str = "follower") -> ArmConfig:
             live_step_deg=float(th.get("live_step_deg", 2.0)),
             live_exercise_amp_deg=float(th.get("live_exercise_amp_deg", 10.0)),
             live_exercise_period_s=float(th.get("live_exercise_period_s", 4.0)),
-            live_torque_limit_nm=float(th.get("live_torque_limit_nm", 4.0)),
+            live_torque_limit_nm=float(th.get("live_torque_limit_nm", 6.0)),
+            live_hold_torque_nm=float(th.get("live_hold_torque_nm", 2.5)),
             live_max_follow_deg=float(th.get("live_max_follow_deg", 5.0)),
         ),
         reference_gains=raw.get("reference_gains", {}),
