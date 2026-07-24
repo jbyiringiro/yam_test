@@ -309,6 +309,16 @@ def run_live(
     err0 = getattr(chain, "error_frames", 0)   # baseline CAN error-frame count
     max_loop_ms = 0.0                           # worst loop period (stall detector)
     last_cycle = None
+    # Keep the control loop TIGHT: command motors every cycle, but throttle the
+    # expensive host-side work (terminal redraw, polling a non-responsive trigger)
+    # so it can't stall the loop past the motors' ~400 ms comms-loss window.
+    trigger = None
+    last_render = 0.0
+    last_trigger_poll = 0.0
+    render_period = 1.0 / 15.0      # redraw ~15 Hz regardless of control rate
+    trigger_period = 0.2           # poll the trigger encoder ~5 Hz
+    comms_recover_count = 0        # transient 0xD recoveries this session
+    COMMS_RECOVER_MAX = 5          # give up (e-stop) after this many
 
     def enable_all() -> None:
         """Enable moving joints; seed targets at measured position."""
@@ -461,7 +471,7 @@ def run_live(
                         peak_temp[s.joint.name] = max(peak_temp[s.joint.name],
                                                       fb.temp_mos, fb.temp_rotor)
                         if moving and not estop and not fb.healthy and fb.error_code != 0:
-                            faulted = (s.joint.name, fb.error_text)
+                            faulted = (s.joint.name, fb.error_text, fb.error_code)
 
                 # ---- torque cap feedback -----------------------------------
                 if not estop:
@@ -486,25 +496,55 @@ def run_live(
                             "Press 'q' to save the report.")
                 prev_responding = responded_now
 
-                # ---- leader trigger handle (read-only) ---------------------
-                trigger = None
-                if cfg.trigger is not None:
+                # ---- leader trigger handle (read-only, throttled) ----------
+                # Polling a non-responding encoder every cycle burns retries and
+                # stalls the loop — poll it at ~5 Hz and reuse the last reading.
+                if cfg.trigger is not None and (loop_start - last_trigger_poll) > trigger_period:
                     trigger = chain.read_encoder(
                         cfg.trigger.encoder_id, cfg.trigger.range_rad,
                         _LOOP_TIMEOUT, _LOOP_RETRIES)
+                    last_trigger_poll = loop_start
 
-                # ---- fault -> auto e-stop ----------------------------------
+                # ---- fault handling ----------------------------------------
                 if faulted and not estop:
-                    estop = True
-                    disable_all()
-                    note = f"FAULT on {faulted[0]}: {faulted[1]} — auto E-STOP. Press 'e' to recover."
-                    if end_reason == "user quit":
-                        end_reason = f"fault on {faulted[0]}: {faulted[1]}"
+                    name, text, code = faulted
+                    if code == 0xD:
+                        # Loss-of-communication = a transient timeout (usually a loop
+                        # stall), not a hardware fault. Recover the affected joints and
+                        # keep going rather than killing the session. Escalate only if
+                        # it keeps happening (then it's a real comms problem).
+                        comms_recover_count += 1
+                        if comms_recover_count > COMMS_RECOVER_MAX:
+                            estop = True
+                            disable_all()
+                            note = ("Repeated comms-loss (0xD) — auto E-STOP. The control "
+                                    "loop is stalling past 400 ms; see 'max loop'.")
+                            end_reason = "repeated comms-loss (0xD) — loop stalling"
+                        else:
+                            for s in states:
+                                if s.fb is not None and s.fb.error_code == 0xD:
+                                    chain.recover_joint(s.joint)
+                                    fbx = chain.read(s.joint.motor_id, s.joint.motor_type,
+                                                     _LOOP_TIMEOUT, _LOOP_RETRIES)
+                                    if fbx is not None:  # reseed so it can't jump
+                                        s.command_deg = s.clamp(rad_to_deg(fbx.position))
+                                        s.desired_deg = s.command_deg
+                            note = (f"comms-loss recovered (x{comms_recover_count}) — brief "
+                                    "loop hiccup. If frequent, jog fewer joints / close other apps.")
+                    else:
+                        estop = True
+                        disable_all()
+                        note = f"FAULT on {name}: {text} — auto E-STOP. Press 'e' to recover."
+                        if end_reason == "user quit":
+                            end_reason = f"fault on {name}: {text}"
 
-                err_now = getattr(chain, "error_frames", 0) - err0
-                live.update(_render(cfg, states, mode=mode, active=active, step=step,
-                                    estop=estop, moving=moving, note=note, trigger=trigger,
-                                    err_frames=err_now, max_loop_ms=max_loop_ms))
+                # ---- render (throttled — terminal redraw can block for 100s of ms) ----
+                if (loop_start - last_render) > render_period:
+                    err_now = getattr(chain, "error_frames", 0) - err0
+                    live.update(_render(cfg, states, mode=mode, active=active, step=step,
+                                        estop=estop, moving=moving, note=note, trigger=trigger,
+                                        err_frames=err_now, max_loop_ms=max_loop_ms))
+                    last_render = loop_start
 
                 # ---- pace the loop -----------------------------------------
                 elapsed = time.perf_counter() - loop_start
