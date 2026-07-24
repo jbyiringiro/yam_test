@@ -57,6 +57,32 @@ def test_slew_limit_caps_commanded_speed():
     assert command <= th.live_max_vel_deg + max_step + 1e-6
 
 
+def test_dm4310_datasheet_ratings():
+    """From the DM-J4310-2EC V1.1 manual (Damiao)."""
+    from arm_test.dm_motor import MotorType
+    c = MotorType.DM4310.constants
+    assert c.rated_torque == 3.0 and c.peak_torque == 7.0
+    assert c.rated_current == 2.5 and c.peak_current == 7.5
+    # DM4340 datasheet not on hand — must stay None so callers don't trust a guess
+    assert MotorType.DM4340.constants.rated_torque is None
+
+
+def test_per_joint_torque_limit_respects_motor_rating():
+    """Raising the global limit must not exceed a small motor's rated torque."""
+    from arm_test.dm_motor import MotorType
+
+    def joint_limit(global_limit, motor_type):
+        rated = motor_type.constants.rated_torque
+        return min(global_limit, rated) if rated else global_limit
+
+    # a big global limit still caps DM4310 at its 3 N.m continuous rating
+    assert joint_limit(8.0, MotorType.DM4310) == 3.0
+    # DM4340 (rating unknown) falls back to the configured limit
+    assert joint_limit(8.0, MotorType.DM4340) == 8.0
+    # a low global limit still wins over the rating
+    assert joint_limit(2.0, MotorType.DM4310) == 2.0
+
+
 def test_monitor_is_read_only_gainless():
     # The monitor path uses chain.read -> hold_command: kp=kd=torque=0 (no motion).
     from arm_test.dm_motor import hold_command, MotorType
