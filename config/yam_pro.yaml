@@ -65,3 +65,7 @@ thresholds:
   live_torque_limit_nm: 4.0     # jog/exercise: freeze a joint's command above this
                                 # torque, so it can't build current until the supply trips.
                                 # Raise cautiously if a joint genuinely needs more to move.
+  live_max_follow_deg: 5.0      # command may never run more than this far ahead of the
+                                # measured position. Since torque ~ kp x error, this bounds
+                                # torque BY CONSTRUCTION — the fix for "step-by-step jogging
+                                # works but continuous jogging trips the supply".

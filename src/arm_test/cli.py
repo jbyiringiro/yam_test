@@ -242,6 +242,83 @@ def cmd_live(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# clear-faults  (read each motor's fault code, then clear it)
+# ---------------------------------------------------------------------------
+def cmd_clear_faults(args) -> int:
+    """Report every motor's fault code and clear latched errors.
+
+    Use when motors are blinking red: a protection (undervoltage, overcurrent,
+    comms loss, ...) latches them out of Enable Mode until the error is cleared.
+    """
+    from .config import load_config
+    from .motor_chain import MotorChain
+    from .dm_motor import rad_to_deg
+
+    cfg = load_config(args.config)
+    iface, chan = _resolve_iface(args)
+    try:
+        bus = open_bus(iface, chan, args.bitrate)
+    except Exception as exc:
+        print(exc)
+        return 2
+
+    faults_found = 0
+    unreachable = 0
+    try:
+        chain = MotorChain(bus, cfg)
+        _resolve_arm(chain, cfg, args)
+        motors = cfg.all_motors()
+        print(f"\nReading fault state of {len(motors)} motor(s)...\n")
+        for j in motors:
+            fb = chain.read(j.motor_id, j.motor_type, 0.03, 8)
+            if fb is None:
+                print(f"  {j.name:<8} 0x{j.motor_id:02X}  NO REPLY  "
+                      "(unpowered or CAN disconnected)")
+                unreachable += 1
+                continue
+            tag = "OK" if fb.error_code in (0x0, 0x1) else "FAULT"
+            print(f"  {j.name:<8} 0x{j.motor_id:02X}  {tag:<5} "
+                  f"code=0x{fb.error_code:X} ({fb.error_text})  "
+                  f"pos={rad_to_deg(fb.position):7.1f}deg  "
+                  f"temp={fb.temp_mos}/{fb.temp_rotor}C")
+            if fb.error_code not in (0x0, 0x1):
+                faults_found += 1
+
+        if faults_found == 0:
+            print(f"\nNo latched faults. ({unreachable} motor(s) unreachable.)"
+                  if unreachable else "\nNo latched faults found.")
+            return 0 if unreachable == 0 else 1
+
+        if not args.yes:
+            resp = input(f"\nClear {faults_found} fault(s)? [y/N] ").strip().lower()
+            if resp != "y":
+                print("Left as-is.")
+                return 1
+
+        print("\nClearing...")
+        still_bad = 0
+        for j in motors:
+            fb = chain.read(j.motor_id, j.motor_type, 0.03, 8)
+            if fb is None or fb.error_code in (0x0, 0x1):
+                continue
+            chain.clean_error(j.motor_id, j.motor_type)
+            after = chain.read(j.motor_id, j.motor_type, 0.03, 8)
+            ok = after is not None and after.error_code in (0x0, 0x1)
+            print(f"  {j.name:<8} {'cleared' if ok else 'STILL FAULTED'}"
+                  + ("" if ok else f" (0x{after.error_code:X})" if after else " (no reply)"))
+            if not ok:
+                still_bad += 1
+        if still_bad:
+            print("\nSome faults persist — the underlying cause is still present "
+                  "(e.g. supply voltage low). Fix that, or power-cycle the arm.")
+            return 1
+        print("\nAll faults cleared. Re-run `motors --no-move` to confirm.")
+    finally:
+        bus.shutdown()
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # gripper  (follower gripper control)
 # ---------------------------------------------------------------------------
 def cmd_gripper(args) -> int:
@@ -446,6 +523,13 @@ def build_parser() -> argparse.ArgumentParser:
     a = sub.add_parser("arm", help="detect whether a leader or follower arm is connected")
     _add_bus_args(a)
     a.set_defaults(func=cmd_arm)
+
+    cf = sub.add_parser("clear-faults",
+                        help="show each motor's fault code and clear latched errors (blinking red)")
+    _add_bus_args(cf)
+    _add_arm_arg(cf)
+    cf.add_argument("--yes", "-y", action="store_true", help="clear without confirming")
+    cf.set_defaults(func=cmd_clear_faults)
 
     gr = sub.add_parser("gripper", help="open/close/operate the follower gripper (torque-limited)")
     _add_bus_args(gr)

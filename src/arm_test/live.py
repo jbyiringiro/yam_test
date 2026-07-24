@@ -264,6 +264,7 @@ def run_live(
     max_step_per_cycle = th.live_max_vel_deg * dt  # slew limit -> deg per cycle
     # freeze command above this torque (CLI override wins over config)
     torque_limit = th.live_torque_limit_nm if torque_limit is None else torque_limit
+    max_follow_deg = th.live_max_follow_deg   # command may not outrun the motor
 
     motors = cfg.all_motors(include_gripper=include_gripper)
     if joints_filter:
@@ -403,6 +404,17 @@ def run_live(
                             if abs(delta) > max_step_per_cycle:
                                 delta = math.copysign(max_step_per_cycle, delta)
                             s.command_deg = s.clamp(s.command_deg + delta)
+
+                        # Following-error clamp: never let the command run more than
+                        # max_follow_deg ahead of where the motor actually is. Since
+                        # torque ~ kp * error, this bounds torque (and current) BY
+                        # CONSTRUCTION. Without it, a continuous jog outruns the motor,
+                        # the gap grows, torque climbs and the supply trips — while
+                        # step-by-step jogging works because the motor keeps catching up.
+                        if s.fb is not None:
+                            pos_now = rad_to_deg(s.fb.position)
+                            s.command_deg = max(pos_now - max_follow_deg,
+                                                min(pos_now + max_follow_deg, s.command_deg))
                         fb = chain.command(
                             s.joint.motor_id, s.joint.motor_type,
                             position=deg_to_rad(s.command_deg),

@@ -51,6 +51,10 @@ class Thresholds:
     live_exercise_period_s: float = 4.0   # exercise oscillation period
     live_torque_limit_nm: float = 4.0     # freeze a joint's command above this torque
                                           # (prevents current runaway that trips the supply)
+    live_max_follow_deg: float = 5.0      # command may never run more than this far ahead
+                                          # of the measured position. Bounds torque by
+                                          # construction (torque ~ kp * error), so a
+                                          # continuous jog can't build a current spike.
 
 
 @dataclass
@@ -150,6 +154,7 @@ def load_config(path: Optional[str] = None, arm: str = "follower") -> ArmConfig:
             live_exercise_amp_deg=float(th.get("live_exercise_amp_deg", 10.0)),
             live_exercise_period_s=float(th.get("live_exercise_period_s", 4.0)),
             live_torque_limit_nm=float(th.get("live_torque_limit_nm", 4.0)),
+            live_max_follow_deg=float(th.get("live_max_follow_deg", 5.0)),
         ),
         reference_gains=raw.get("reference_gains", {}),
     )
