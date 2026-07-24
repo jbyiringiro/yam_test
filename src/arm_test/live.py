@@ -388,7 +388,12 @@ def run_live(
                         # chasing the target — freeze the command at the measured
                         # position. This bounds current so it can't build until the
                         # power supply trips (the J3 shutdown failure mode).
-                        if s.fb is not None and abs(s.fb.torque) > torque_limit:
+                        # Per-joint limit never exceeds the motor's datasheet rated
+                        # torque (DM4310 = 3 N·m continuous), so raising the global
+                        # limit for the big shoulder motors can't cook the small ones.
+                        rated = s.joint.motor_type.constants.rated_torque
+                        joint_limit = min(torque_limit, rated) if rated else torque_limit
+                        if s.fb is not None and abs(s.fb.torque) > joint_limit:
                             s.command_deg = s.clamp(rad_to_deg(s.fb.position))
                             s.desired_deg = s.command_deg
                             torque_capped.append(s.joint.name)

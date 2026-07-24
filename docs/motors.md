@@ -7,6 +7,8 @@ understand or hand-verify any frame.
 
 ## The actuators
 
+**Protocol scaling ranges** (these are encode/decode ranges, *not* physical ratings):
+
 | | DM4310 | DM4340 |
 |---|---|---|
 | Used on | J4–J6 (elbow/wrist) + gripper | J1–J3 (shoulder) |
@@ -15,6 +17,58 @@ understand or hand-verify any frame.
 | Torque range | ±10 N·m | ±28 N·m |
 | Kp range | 0–500 | 0–500 |
 | Kd range | 0–5 | 0–5 |
+
+### DM4310 physical ratings (DM-J4310-2EC V1.1 manual, Damiao)
+
+**These are real limits** — sustained torque above *rated* overheats the motor.
+Don't confuse them with the protocol range above (±10 N·m is just the encoding).
+
+| Parameter | Value |
+|---|---|
+| Rated voltage | 24 V |
+| **Rated torque / current** | **3 N·m / 2.5 A** |
+| **Peak torque / current** | **7 N·m / 7.5 A** |
+| Rated / no-load max speed | 120 / 200 rpm |
+| Gear ratio | 10:1 |
+| Encoders | 2× magnetic single-turn, 14-bit ("2EC") |
+| Size / weight | 56 mm ⌀ × 46 mm, ~300 g |
+| Phase resistance / inductance | 650 mΩ / 340 µH |
+
+> **Power budgeting:** a single DM4310 can pull **7.5 A** at peak. With six motors
+> on one bus (the DM4340 shoulders draw more), a 24 V **15 A** supply is *marginal*
+> under simultaneous peak load — a straining shoulder joint can trip it. The
+> toolkit's live torque cap exists to bound this; per-joint it never exceeds the
+> motor's rated torque.
+
+> DM4340 physical ratings are **not** in this manual. The toolkit leaves them
+> unset so it falls back to the configured limit instead of guessing.
+
+## Status LED (fastest field diagnostic)
+
+Each motor has an indicator LED — no software needed:
+
+| LED | Meaning |
+|---|---|
+| **Green, solid** | Enable mode, working normally |
+| **Red, solid** | Disable mode |
+| **Red, flashing** | **Fault** — see the code table below |
+
+All LEDs dark on a section ⇒ that section has **lost power** (not a motor fault).
+
+## Built-in protections
+
+Each trips the motor **out of "Enable Mode"** — note it keeps replying on CAN and
+reports the fault, so a motor that goes **totally silent is unpowered/disconnected**,
+not protection-tripped:
+
+| Protection | Threshold (recommended) |
+|---|---|
+| Overcurrent | ≤ 9.8 A |
+| Overvoltage | ≤ 32 V |
+| Undervoltage | supply ≥ 15 V |
+| Driver (MOS) overtemp | 120 °C |
+| Motor coil overtemp | ≤ 100 °C |
+| Communication loss | no CAN command within the set period |
 
 > **⚠ DM4340 velocity = ±10, not ±8.** i2rt hard-codes the 48 V velocity constant
 > (10), while Damiao's stock 24 V table lists 8. Velocity encode/decode *must* use

@@ -18,6 +18,7 @@ import math
 import struct
 from dataclasses import dataclass
 from enum import Enum
+from typing import Optional
 
 
 # ---------------------------------------------------------------------------
@@ -25,13 +26,20 @@ from enum import Enum
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class MotorConstants:
-    p_max: float          # rad
-    v_max: float          # rad/s
-    t_max: float          # N·m
+    p_max: float          # rad   — protocol scaling range (NOT a physical rating)
+    v_max: float          # rad/s — protocol scaling range
+    t_max: float          # N·m   — protocol scaling range
     kp_max: float = 500.0
     kp_min: float = 0.0
     kd_max: float = 5.0
     kd_min: float = 0.0
+    # Physical ratings from the manufacturer datasheet (None = not on hand).
+    # These are real limits: sustained torque above `rated_torque` overheats the
+    # motor; `peak_torque` is the short-term ceiling.
+    rated_torque: Optional[float] = None   # N·m continuous
+    peak_torque: Optional[float] = None    # N·m short-term
+    rated_current: Optional[float] = None  # A continuous
+    peak_current: Optional[float] = None   # A short-term
 
     @property
     def p_min(self) -> float:
@@ -56,9 +64,17 @@ class MotorType(str, Enum):
 
 
 _MOTOR_CONSTANTS: dict[MotorType, MotorConstants] = {
-    # DM4310 matches Damiao stock exactly: P ±12.5, V ±30, T ±10
-    MotorType.DM4310: MotorConstants(p_max=12.5, v_max=30.0, t_max=10.0),
-    # DM4340: i2rt hard-codes V_MAX = 10 (48 V value), T ±28
+    # DM4310 matches Damiao stock exactly: P ±12.5, V ±30, T ±10.
+    # Physical ratings from DM-J4310-2EC V1.1 manual (Damiao, 2023-11-16):
+    # rated 3 N·m / 2.5 A, peak 7 N·m / 7.5 A, 10:1 gearing, 2x 14-bit encoders.
+    MotorType.DM4310: MotorConstants(
+        p_max=12.5, v_max=30.0, t_max=10.0,
+        rated_torque=3.0, peak_torque=7.0,
+        rated_current=2.5, peak_current=7.5,
+    ),
+    # DM4340: i2rt hard-codes V_MAX = 10 (48 V value), T ±28.
+    # Physical ratings not on hand (no DM4340 datasheet) — left None so callers
+    # fall back to the configured limit rather than trusting a guess.
     MotorType.DM4340: MotorConstants(p_max=12.5, v_max=10.0, t_max=28.0),
 }
 
