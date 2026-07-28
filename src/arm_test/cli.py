@@ -275,15 +275,28 @@ def cmd_trigger(args) -> int:
         except Exception:
             _read_key, _HAVE_KEYS = (lambda: None), False
 
+        import math
         from rich.live import Live
         from rich.console import Console
         console = Console()
-        print("Squeeze fully in/out to see the span. For magnet/encoder alignment, "
-              "aim for raw pos ~0.000 rad at REST (matches a good handle). "
-              + ("'r' resets min/max, 'q' quits." if _HAVE_KEYS else "Ctrl+C quits."))
+        align = getattr(args, "align", False)
+        if align:
+            print("ALIGN MODE: hold the trigger at REST, adjust the magnet until "
+                  "'rest zero' is green, then squeeze fully to check the sweep. "
+                  + ("'r' rechecks, 'q' quits." if _HAVE_KEYS else "Ctrl+C quits."))
+        else:
+            print("Squeeze fully in/out to see the span. For alignment, aim for raw pos "
+                  "~0.000 rad at REST. "
+                  + ("'r' resets min/max, 'q' quits." if _HAVE_KEYS else "Ctrl+C quits."))
+
+        def fresh_stats():
+            return {"pmin": rd.position_rad, "pmax": rd.position_rad,
+                    "tmin": rd.trigger, "tmax": rd.trigger,
+                    "min_abs": abs(rd.position_rad), "wrap": False}
+
         last_render = 0.0
-        pmin = pmax = rd.position_rad
-        tmin = tmax = rd.trigger
+        st = fresh_stats()
+        prev_pos = rd.position_rad
         try:
             with Live(console=console, refresh_per_second=15) as live:
                 while True:
@@ -291,26 +304,56 @@ def cmd_trigger(args) -> int:
                     key = _read_key()
                     if key in ("q", "ESC"):
                         break
-                    if key == "r":  # reset the captured span
-                        pmin = pmax = rd.position_rad
-                        tmin = tmax = rd.trigger
+                    if key == "r":
+                        st = fresh_stats()
                     rd = chain.read_encoder(t.encoder_id, t.range_rad, 0.01, 3, invert=invert) or rd
-                    pmin, pmax = min(pmin, rd.position_rad), max(pmax, rd.position_rad)
-                    tmin, tmax = min(tmin, rd.trigger), max(tmax, rd.trigger)
+                    st["pmin"] = min(st["pmin"], rd.position_rad)
+                    st["pmax"] = max(st["pmax"], rd.position_rad)
+                    st["tmin"] = min(st["tmin"], rd.trigger)
+                    st["tmax"] = max(st["tmax"], rd.trigger)
+                    st["min_abs"] = min(st["min_abs"], abs(rd.position_rad))
+                    if abs(rd.position_rad - prev_pos) > 3.0:   # ~pi jump = wrap
+                        st["wrap"] = True
+                    prev_pos = rd.position_rad
+
                     if (now - last_render) > (1.0 / 15.0):
-                        n = int(round(rd.trigger * 20))
-                        bar = "█" * n + "·" * (20 - n)
                         btns = "".join("●" if b else "○" for b in rd.buttons)
-                        live.update(
-                            f"{t.name} (encoder 0x{t.encoder_id:X})\n"
-                            f"  trigger [{bar}] {rd.trigger:.2f}   "
-                            f"gripper_cmd={rd.gripper_cmd:.2f}   buttons {btns}\n"
-                            f"  raw:  pos={rd.position_rad:+.3f} rad   "
-                            f"vel={rd.velocity_rad:+.3f} rad/s   id={rd.device_id}\n"
-                            f"  span: pos [{pmin:+.3f} .. {pmax:+.3f}] rad   "
-                            f"trigger [{tmin:.2f} .. {tmax:.2f}]   "
-                            f"(rest pos should be ~0.000)"
-                        )
+                        if align:
+                            # deviation-from-zero bar (center = 0)
+                            span = t.range_rad or 0.7
+                            frac = max(-1.0, min(1.0, rd.position_rad / span))
+                            slot = int(round((frac + 1) / 2 * 20))
+                            devbar = "".join("|" if i == 10 else ("●" if i == slot else "·")
+                                             for i in range(21))
+                            ok_rest = st["min_abs"] <= 0.02
+                            ok_squeeze = st["tmax"] >= 0.95
+                            ok_wrap = not st["wrap"] and abs(rd.position_rad) < 2.8
+                            allgood = ok_rest and ok_squeeze and ok_wrap
+
+                            def mark(x):
+                                return "[green]✓[/green]" if x else "[red]✗[/red]"
+
+                            live.update(
+                                f"[bold]TRIGGER ALIGNMENT[/bold] — encoder 0x{t.encoder_id:X}\n"
+                                f"  rest deviation  [{devbar}]  pos={rd.position_rad:+.3f} rad\n"
+                                f"  {mark(ok_rest)} rest zero     (closest |pos| = {st['min_abs']:.3f}, target ≤ 0.02)\n"
+                                f"  {mark(ok_squeeze)} full squeeze  (max trigger = {st['tmax']:.2f}, target ≥ 0.95)\n"
+                                f"  {mark(ok_wrap)} no ±π wrap    (pos span {st['pmin']:+.2f}..{st['pmax']:+.2f})\n"
+                                + ("  [bold green]ALL GREEN — magnet aligned.[/bold green]" if allgood
+                                   else "  [yellow]adjust magnet: rotate for rest zero; re-center/gap if not smooth[/yellow]")
+                            )
+                        else:
+                            n = int(round(rd.trigger * 20))
+                            bar = "█" * n + "·" * (20 - n)
+                            live.update(
+                                f"{t.name} (encoder 0x{t.encoder_id:X})\n"
+                                f"  trigger [{bar}] {rd.trigger:.2f}   "
+                                f"gripper_cmd={rd.gripper_cmd:.2f}   buttons {btns}\n"
+                                f"  raw:  pos={rd.position_rad:+.3f} rad   "
+                                f"vel={rd.velocity_rad:+.3f} rad/s   id={rd.device_id}\n"
+                                f"  span: pos [{st['pmin']:+.3f} .. {st['pmax']:+.3f}] rad   "
+                                f"trigger [{st['tmin']:.2f} .. {st['tmax']:.2f}]"
+                            )
                         last_render = now
                     time.sleep(0.005)
         except KeyboardInterrupt:
@@ -656,6 +699,9 @@ def build_parser() -> argparse.ArgumentParser:
     tg.add_argument("--invert", action="store_true",
                     help="flip the mapping if this handle reads reversed (rest ~1.0, "
                          "squeeze opens instead of closes)")
+    tg.add_argument("--align", action="store_true",
+                    help="magnet-alignment mode: live pass/fail checklist (rest zero, "
+                         "full squeeze, no wrap) while you position the magnet")
     tg.set_defaults(func=cmd_trigger)
 
     mo = sub.add_parser("motor", help="test ONE motor by CAN id or --joint, and report")

@@ -98,7 +98,7 @@ yam-test can --interface slcan  --channel COM5   # if using slcan firmware inste
 | `selftest` | no             | **Adapter loopback test — no arm/wiring/termination needed.** Proves the CANable's USB+driver+TX/RX all work     |
 | `can`      | no             | Passive traffic scan, error frames, bus load                                                                            |
 | `arm`      | no             | Detects whether a**leader** or **follower** arm is connected (active probe)                                 |
-| `trigger`  | no             | **Leader only.** Live read the trigger handle — value (0–1), gripper_cmd, buttons (read-only)                     |
+| `trigger`  | no             | **Leader only.** Live read the trigger handle — value (0–1), gripper_cmd, buttons; `--align` for magnet alignment |
 | `gripper`  | yes            | **Follower only.** Open/close/operate the gripper, torque-limited so it stops at the stop or when it grips        |
 | `motor`    | optional       | **Test ONE motor** by CAN id or `--joint` (datasheet check, feedback, `--enable`, `--move`) — for swap-testing a single actuator |
 | `motors`   | optional       | Per-joint enable, feedback decode, temperature, fault codes (+ gripper or trigger)                                      |

@@ -9,6 +9,33 @@ or jittery values.
 `yam-test trigger` is your alignment gauge — it shows the **raw position** and a
 running **min/max span** so you can set the magnet by feedback instead of guesswork.
 
+## Easiest way: `trigger --align`
+
+```powershell
+.\yam.bat trigger --align
+```
+
+Gives a live **pass/fail checklist** and a deviation-from-zero bar — just adjust
+the magnet until everything is green:
+
+```
+TRIGGER ALIGNMENT — encoder 0x50E
+  rest deviation  [··········|●········]  pos=+0.004 rad
+  ✓ rest zero     (closest |pos| = 0.004, target ≤ 0.02)
+  ✓ full squeeze  (max trigger = 0.98, target ≥ 0.95)
+  ✓ no ±π wrap    (pos span +0.00..+0.70)
+  ALL GREEN — magnet aligned.
+```
+
+- Hold at **rest** and rotate the magnet until **rest zero** goes green (the `●`
+  sits on the center `|`).
+- Then **squeeze fully** to turn **full squeeze** green.
+- **no ±π wrap** stays green as long as the sweep doesn't cross the encoder's
+  wrap boundary.
+- Press **`r`** to re-check, **`q`** to quit.
+
+The manual gauge (below) is the same data without the checklist.
+
 ## The four things that must be right
 
 | Aspect | Symptom if wrong | Fix |
