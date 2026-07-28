@@ -321,20 +321,36 @@ def run_live(
     COMMS_RECOVER_MAX = 5          # give up (e-stop) after this many
 
     def enable_all() -> None:
-        """Enable moving joints; seed targets at measured position."""
+        """Enable moving joints; seed targets at measured position.
+
+        Returns nothing but sets s.present and reports any joint that would not
+        reach ENABLED (healthy). Some DM motors need a clean_error BEFORE the
+        enable takes, even when they only read 'disabled' — so if a joint doesn't
+        come up healthy on the first enable, we clear+re-enable a few times.
+        """
+        nonlocal note
+        not_enabled = []
         for s in states:
             fb = chain.enable_joint(s.joint)
             if fb is None:
                 s.present = False
+                not_enabled.append(f"{s.joint.name}(no reply)")
                 continue
-            if not fb.healthy and fb.error_code != 0:
+            if not fb.healthy:  # not ENABLED yet (disabled OR faulted) -> clear+retry
                 fb = chain.recover_joint(s.joint) or fb
             s.present = True
             s.fb = fb
+            if not fb.healthy:
+                not_enabled.append(f"{s.joint.name}({fb.error_text})")
             pos = rad_to_deg(fb.position)
             s.desired_deg = s.clamp(pos)
             s.command_deg = s.clamp(pos)
             s.center_deg = s.clamp(pos)
+        if not_enabled:
+            note = ("Did NOT enable: " + ", ".join(not_enabled)
+                    + ". Red-solid LED = stuck disabled (try 'clear-faults'; if it "
+                    "persists it's that motor's driver — check with Damiao assistant "
+                    "or swap the actuator).")
 
     def disable_all() -> None:
         for s in states:
