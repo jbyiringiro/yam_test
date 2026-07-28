@@ -36,6 +36,8 @@ end_effectors:
     name: trigger
     encoder_id: 0x50E      # 1294; passive encoder, replies on 0x50F
     range_rad: 0.7         # +/- travel mapped to trigger 0..1
+    invert: false          # set true if THIS handle reads reversed (rest ~1.0, squeeze
+                           # opens instead of closes) — its encoder is zeroed the other way
     enabled: true
 
 # Reference control gains (from i2rt yam_pro.yml). NOT used for motion tests —

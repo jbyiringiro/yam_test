@@ -119,6 +119,7 @@ class MotorChain:
         range_rad: float = enc.ENCODER_DEFAULT_RANGE_RAD,
         timeout: Optional[float] = None,
         retries: Optional[int] = None,
+        invert: bool = False,
     ) -> Optional[EncoderReading]:
         """Poll the leader's trigger encoder. Returns None if it never replied.
 
@@ -147,7 +148,7 @@ class MotorChain:
                 self.error_frames += 1
                 continue
             if msg.arbitration_id == want_rx and len(msg.data) >= 6:
-                return enc.decode_encoder(bytes(msg.data), range_rad)
+                return enc.decode_encoder(bytes(msg.data), range_rad, invert)
         return None
 
     # ---- convenience over JointCfg ---------------------------------------

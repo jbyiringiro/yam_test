@@ -260,9 +260,10 @@ def cmd_trigger(args) -> int:
     except Exception as exc:
         print(exc)
         return 2
+    invert = args.invert or t.invert
     try:
         chain = MotorChain(bus, cfg)
-        rd = chain.read_encoder(t.encoder_id, t.range_rad, 0.03, 8)
+        rd = chain.read_encoder(t.encoder_id, t.range_rad, 0.03, 8, invert=invert)
         if rd is None:
             print(f"No reply from trigger (encoder 0x{t.encoder_id:X}, reply on "
                   f"0x{t.encoder_id + 1:X}). Is a LEADER arm connected + powered, and "
@@ -286,7 +287,7 @@ def cmd_trigger(args) -> int:
                     now = time.perf_counter()
                     if _read_key() in ("q", "ESC"):
                         break
-                    rd = chain.read_encoder(t.encoder_id, t.range_rad, 0.01, 3) or rd
+                    rd = chain.read_encoder(t.encoder_id, t.range_rad, 0.01, 3, invert=invert) or rd
                     if (now - last_render) > (1.0 / 15.0):
                         n = int(round(rd.trigger * 20))
                         bar = "█" * n + "·" * (20 - n)
@@ -640,6 +641,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     tg = sub.add_parser("trigger", help="live read the leader trigger handle (value + buttons)")
     _add_bus_args(tg)
+    tg.add_argument("--invert", action="store_true",
+                    help="flip the mapping if this handle reads reversed (rest ~1.0, "
+                         "squeeze opens instead of closes)")
     tg.set_defaults(func=cmd_trigger)
 
     mo = sub.add_parser("motor", help="test ONE motor by CAN id or --joint, and report")

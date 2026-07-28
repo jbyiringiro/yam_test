@@ -518,7 +518,7 @@ def run_live(
                 if cfg.trigger is not None and (loop_start - last_trigger_poll) > trigger_period:
                     trigger = chain.read_encoder(
                         cfg.trigger.encoder_id, cfg.trigger.range_rad,
-                        _LOOP_TIMEOUT, _LOOP_RETRIES)
+                        _LOOP_TIMEOUT, _LOOP_RETRIES, invert=cfg.trigger.invert)
                     last_trigger_poll = loop_start
 
                 # ---- fault handling ----------------------------------------

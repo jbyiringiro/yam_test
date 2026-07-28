@@ -78,3 +78,15 @@ def test_encoder_trigger_clamps_beyond_range():
     data = struct.pack("!BhhB", 1, 2000, 0, 0)  # way beyond range
     r = enc.decode_encoder(data, range_rad=0.7)
     assert r.trigger == 1.0
+
+
+def test_encoder_invert_flips_trigger():
+    # a handle at rest reads ~0 normally; inverted it should read ~1 (and vice-versa)
+    raw = int(round(0.35 * 4096 / enc.TWO_PI))  # 0.35 rad -> trigger 0.5
+    data = struct.pack("!BhhB", 1, raw, 0, 0)
+    normal = enc.decode_encoder(data, range_rad=0.7, invert=False)
+    flipped = enc.decode_encoder(data, range_rad=0.7, invert=True)
+    assert abs(normal.trigger - 0.5) < 0.02
+    assert abs(flipped.trigger - (1.0 - normal.trigger)) < 1e-9
+    # gripper_cmd stays consistent with the (possibly flipped) trigger
+    assert abs(flipped.gripper_cmd - (1.0 - flipped.trigger)) < 1e-9

@@ -33,6 +33,7 @@ class TriggerCfg:
     name: str
     encoder_id: int
     range_rad: float = 0.7
+    invert: bool = False   # flip mapping if this handle's encoder reads reversed
 
 
 @dataclass
@@ -130,6 +131,7 @@ def load_config(path: Optional[str] = None, arm: str = "follower") -> ArmConfig:
             name=lt.get("name", "trigger"),
             encoder_id=int(lt["encoder_id"]),
             range_rad=float(lt.get("range_rad", 0.7)),
+            invert=bool(lt.get("invert", False)),
         )
 
     cfg = ArmConfig(

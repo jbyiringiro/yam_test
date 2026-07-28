@@ -53,8 +53,14 @@ class EncoderReading:
         return 1.0 - self.trigger
 
 
-def decode_encoder(data: bytes, range_rad: float = ENCODER_DEFAULT_RANGE_RAD) -> EncoderReading:
-    """Decode a 6-byte passive-encoder reply frame."""
+def decode_encoder(data: bytes, range_rad: float = ENCODER_DEFAULT_RANGE_RAD,
+                   invert: bool = False) -> EncoderReading:
+    """Decode a 6-byte passive-encoder reply frame.
+
+    invert: flip the trigger mapping for a handle whose encoder is zeroed/oriented
+    the opposite way (reads ~1.0 at rest instead of ~0.0, so squeeze/release come
+    out backwards). Set per handle in config or with `trigger --invert`.
+    """
     if len(data) < 6:
         raise ValueError(f"encoder frame too short: {len(data)} bytes (need 6)")
     device_id, pos_raw, vel_raw, digital = struct.unpack(_ENCODER_STRUCT, bytes(data[:6]))
@@ -66,6 +72,8 @@ def decode_encoder(data: bytes, range_rad: float = ENCODER_DEFAULT_RANGE_RAD) ->
     # normalize position to a 0..1 trigger value over +/- range_rad
     clamped = max(-range_rad, min(range_rad, position_rad))
     trigger = abs(clamped) / range_rad if range_rad else 0.0
+    if invert:
+        trigger = 1.0 - trigger
 
     return EncoderReading(
         device_id=device_id,
