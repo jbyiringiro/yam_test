@@ -226,6 +226,7 @@ Arm_Test/
 ## Documentation
 
 - [docs/setup-windows.md](docs/setup-windows.md) — gs_usb / CANable Windows setup (Zadig WinUSB)
+- [docs/damiao-assistant.md](docs/damiao-assistant.md) — parameters, control mode & firmware via Damiao's serial tool (+ swap test)
 - [docs/overview.md](docs/overview.md) — the arm, its parts, how it's addressed
 - [docs/leader-follower.md](docs/leader-follower.md) — leader vs follower, trigger vs gripper
 - [docs/motors.md](docs/motors.md) — DM4310/4340 protocol, feedback, fault codes
