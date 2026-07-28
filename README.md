@@ -230,6 +230,7 @@ Arm_Test/
 - [docs/damiao-assistant.md](docs/damiao-assistant.md) — parameters, control mode & firmware via Damiao's serial tool (+ swap test)
 - [docs/overview.md](docs/overview.md) — the arm, its parts, how it's addressed
 - [docs/leader-follower.md](docs/leader-follower.md) — leader vs follower, trigger vs gripper
+- [docs/encoder-alignment.md](docs/encoder-alignment.md) — aligning the trigger magnet for accurate readings
 - [docs/motors.md](docs/motors.md) — DM4310/4340 protocol, feedback, fault codes
 - [docs/wiring-and-can.md](docs/wiring-and-can.md) — harness, termination, adapters, bitrate
 - [docs/maintenance.md](docs/maintenance.md) — routine + fault workflows
