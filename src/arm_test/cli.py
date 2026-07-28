@@ -242,6 +242,72 @@ def cmd_live(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# trigger  (leader trigger-handle readings, read-only)
+# ---------------------------------------------------------------------------
+def cmd_trigger(args) -> int:
+    import time
+    from .config import load_config
+    from .motor_chain import MotorChain
+
+    cfg = load_config(args.config)
+    if cfg.leader_trigger is None:
+        print("No trigger configured in yam_pro.yaml (end_effectors.leader).")
+        return 2
+    t = cfg.leader_trigger
+    iface, chan = _resolve_iface(args)
+    try:
+        bus = open_bus(iface, chan, args.bitrate)
+    except Exception as exc:
+        print(exc)
+        return 2
+    try:
+        chain = MotorChain(bus, cfg)
+        rd = chain.read_encoder(t.encoder_id, t.range_rad, 0.03, 8)
+        if rd is None:
+            print(f"No reply from trigger (encoder 0x{t.encoder_id:X}, reply on "
+                  f"0x{t.encoder_id + 1:X}). Is a LEADER arm connected + powered, and "
+                  "the handle plugged in?")
+            return 1
+
+        try:
+            from .live import _read_key, _HAVE_KEYS
+        except Exception:
+            _read_key, _HAVE_KEYS = (lambda: None), False
+
+        from rich.live import Live
+        from rich.console import Console
+        console = Console()
+        print("Squeeze the trigger and press the handle buttons. "
+              + ("Press 'q' to quit." if _HAVE_KEYS else "Press Ctrl+C to quit."))
+        last_render = 0.0
+        try:
+            with Live(console=console, refresh_per_second=15) as live:
+                while True:
+                    now = time.perf_counter()
+                    if _read_key() in ("q", "ESC"):
+                        break
+                    rd = chain.read_encoder(t.encoder_id, t.range_rad, 0.01, 3) or rd
+                    if (now - last_render) > (1.0 / 15.0):
+                        n = int(round(rd.trigger * 20))
+                        bar = "█" * n + "·" * (20 - n)
+                        btns = "".join("●" if b else "○" for b in rd.buttons)
+                        live.update(
+                            f"{t.name} (encoder 0x{t.encoder_id:X})\n"
+                            f"  trigger [{bar}] {rd.trigger:.2f}   "
+                            f"gripper_cmd={rd.gripper_cmd:.2f}   buttons {btns}\n"
+                            f"  raw: pos={rd.position_rad:+.3f} rad  "
+                            f"vel={rd.velocity_rad:+.3f} rad/s  id={rd.device_id}"
+                        )
+                        last_render = now
+                    time.sleep(0.005)
+        except KeyboardInterrupt:
+            pass
+    finally:
+        bus.shutdown()
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # motor  (test ONE motor by CAN id / joint name)
 # ---------------------------------------------------------------------------
 def cmd_motor(args) -> int:
@@ -571,6 +637,10 @@ def build_parser() -> argparse.ArgumentParser:
     a = sub.add_parser("arm", help="detect whether a leader or follower arm is connected")
     _add_bus_args(a)
     a.set_defaults(func=cmd_arm)
+
+    tg = sub.add_parser("trigger", help="live read the leader trigger handle (value + buttons)")
+    _add_bus_args(tg)
+    tg.set_defaults(func=cmd_trigger)
 
     mo = sub.add_parser("motor", help="test ONE motor by CAN id or --joint, and report")
     _add_bus_args(mo)
