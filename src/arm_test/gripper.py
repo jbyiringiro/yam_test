@@ -79,10 +79,19 @@ def run_gripper(chain: MotorChain, cfg: ArmConfig, action: str = "interactive",
     if fb is None:
         print(f"No reply from gripper (id 0x{g.motor_id:02X}). Is a follower connected/powered?")
         return
-    if not fb.healthy and fb.error_code != 0:
+    if not fb.healthy:  # disabled OR faulted -> clear-error + re-enable (the J6 fix)
         fb = chain.recover_joint(g) or fb
+    if not fb.healthy:
+        print(f"Gripper would NOT enable — stuck '{fb.error_text}' (0x{fb.error_code:X}). "
+              "Red-solid LED = disable mode; check the gripper's connector, or test it "
+              "with:  yam-test motor --id 0x07 --type DM4310 --enable")
+        try:
+            chain.disable(g.motor_id, g.motor_type)
+        except Exception:
+            pass
+        return
     start = fb.position
-    print(f"Gripper enabled. start pos = {rad_to_deg(start):.1f}°, "
+    print(f"Gripper enabled (state normal / LED green). start pos = {rad_to_deg(start):.1f}°, "
           f"torque limit = {TORQUE_LIMIT} N·m. (Ctrl+C or 'q' to stop.)")
 
     try:
@@ -124,8 +133,11 @@ def _interactive(chain: MotorChain, cfg: ArmConfig, g, sign: float) -> None:
         from rich.console import Console
         console = Console()
         cmd = target
-        with Live(console=console, refresh_per_second=20) as live:
+        last_render = 0.0
+        render_period = 1.0 / 15.0   # throttle redraw so it can't stall the loop (0xD)
+        with Live(console=console, refresh_per_second=15) as live:
             while True:
+                now = time.perf_counter()
                 key = _read_key()
                 if key in ("q", "ESC"):
                     break
@@ -153,7 +165,7 @@ def _interactive(chain: MotorChain, cfg: ArmConfig, g, sign: float) -> None:
                 fb = chain.command(g.motor_id, g.motor_type, position=cmd,
                                    kp=KP, kd=KD, timeout=_LT, retries=_LR) or fb
 
-                if fb is not None:
+                if fb is not None and (now - last_render) > render_period:
                     live.update(
                         f"gripper  pos=[bold]{rad_to_deg(fb.position):7.1f}°[/bold]  "
                         f"target={rad_to_deg(target):7.1f}°  "
@@ -161,6 +173,7 @@ def _interactive(chain: MotorChain, cfg: ArmConfig, g, sign: float) -> None:
                         f"temp={fb.temp_mos}/{fb.temp_rotor}°C{grip}\n"
                         "[dim][o]pen [c]lose [+/-] nudge [space] hold [q]uit[/dim]"
                     )
+                    last_render = now
                 time.sleep(dt)
     except KeyboardInterrupt:
         pass
