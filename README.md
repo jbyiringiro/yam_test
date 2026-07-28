@@ -14,13 +14,13 @@ diagnose faults *even when the full i2rt software stack won't come up*. Use it t
 
 ## The arm at a glance
 
-| | |
-|---|---|
-| DOF | 6 |
-| Communication | CAN bus @ **1 Mbit/s** |
-| Shoulder motors (J1–J3) | 3× **DM4340** |
-| Elbow/wrist motors (J4–J6) | 3× **DM4310** |
-| Gripper | LINEAR_4310 |
+|                             |                             |
+| --------------------------- | --------------------------- |
+| DOF                         | 6                           |
+| Communication               | CAN bus @**1 Mbit/s** |
+| Shoulder motors (J1–J3)    | 3×**DM4340**         |
+| Elbow/wrist motors (J4–J6) | 3×**DM4310**         |
+| Gripper                     | LINEAR_4310                 |
 
 Joint ranges, gains, and motor constants live in [config/yam_pro.yaml](config/yam_pro.yaml).
 Deep-dive docs are in [docs/](docs/).
@@ -46,8 +46,7 @@ python -m pip install -e .
 .\yam.bat checkup           # guided end-to-end flow (recommended)
 ```
 
-A virtual environment is optional (for isolation): `python -m venv .venv ;
-.venv\Scripts\Activate.ps1` before the pip installs.
+A virtual environment is optional (for isolation): `python -m venv .venv ; .venv\Scripts\Activate.ps1` before the pip installs.
 
 We use a **gs_usb** adapter (CANable / candleLight). `requirements.txt` installs
 its backend; on Windows you also bind it to WinUSB **once** with Zadig — see
@@ -65,8 +64,7 @@ works even if `python` isn't on your PATH:
 ```
 
 `yam.bat` works in any shell (cmd or PowerShell). `.\yam.ps1 ...` also works in
-PowerShell if script execution is enabled (`Set-ExecutionPolicy -Scope
-CurrentUser RemoteSigned`). Long form: `python -m arm_test.cli checkup`.
+PowerShell if script execution is enabled (`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`). Long form: `python -m arm_test.cli checkup`.
 
 ## Quick start
 
@@ -93,17 +91,18 @@ yam-test can --interface slcan  --channel COM5   # if using slcan firmware inste
 
 ## What each command does
 
-| Command | Motion? | What it checks |
-|---|---|---|
-| `checkup` | guided | **One guided flow:** CAN link → detect arm → scan motors → activate (follower jog) or trigger+buttons (leader) |
-| `scan` | no | Lists CAN adapters/candidates found on the machine |
-| `selftest` | no | **Adapter loopback test — no arm/wiring/termination needed.** Proves the CANable's USB+driver+TX/RX all work |
-| `can` | no | Passive traffic scan, error frames, bus load |
-| `arm` | no | Detects whether a **leader** or **follower** arm is connected (active probe) |
-| `gripper` | yes | **Follower only.** Open/close/operate the gripper, torque-limited so it stops at the stop or when it grips |
-| `motors` | optional | Per-joint enable, feedback decode, temperature, fault codes (+ gripper or trigger) |
-| `full` | optional | CAN health + all joints + summary report |
-| `live` | mode-dependent | Live streaming: `monitor` (read-only), `jog` (keyboard control), `exercise` (auto oscillation) |
+| Command      | Motion?        | What it checks                                                                                                          |
+| ------------ | -------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `checkup`  | guided         | **One guided flow:** CAN link → detect arm → scan motors → activate (follower jog) or trigger+buttons (leader) |
+| `scan`     | no             | Lists CAN adapters/candidates found on the machine                                                                      |
+| `selftest` | no             | **Adapter loopback test — no arm/wiring/termination needed.** Proves the CANable's USB+driver+TX/RX all work     |
+| `can`      | no             | Passive traffic scan, error frames, bus load                                                                            |
+| `arm`      | no             | Detects whether a**leader** or **follower** arm is connected (active probe)                                 |
+| `gripper`  | yes            | **Follower only.** Open/close/operate the gripper, torque-limited so it stops at the stop or when it grips        |
+| `motor`    | optional       | **Test ONE motor** by CAN id or `--joint` (datasheet check, feedback, `--enable`, `--move`) — for swap-testing a single actuator |
+| `motors`   | optional       | Per-joint enable, feedback decode, temperature, fault codes (+ gripper or trigger)                                      |
+| `full`     | optional       | CAN health + all joints + summary report                                                                                |
+| `live`     | mode-dependent | Live streaming:`monitor` (read-only), `jog` (keyboard control), `exercise` (auto oscillation)                     |
 
 `--no-move` keeps everything **read-only / hold-at-zero**. Motion tests are opt-in.
 
@@ -111,7 +110,7 @@ yam-test can --interface slcan  --channel COM5   # if using slcan firmware inste
 
 The 6 joints (J1–J6) are identical on both arms; they differ only at joint 7 —
 the **follower** has an actuated **gripper** (DM4310 @ 0x07), the **leader** has a
-read-only **trigger** encoder (@ 0x50E). The tool auto-detects which is connected,
+read-only **trigger** encoder (@ 0x50E). DM-J4310-2ECThe tool auto-detects which is connected,
 or you can force it:
 
 ```powershell
@@ -122,6 +121,23 @@ yam-test live   --arm leader     # monitor J1-J6 + live trigger bar + buttons
 ```
 
 Full detail in [docs/leader-follower.md](docs/leader-follower.md).
+
+## Test a single motor (`yam-test motor`)
+
+Isolate and bench-test **one** actuator — ideal for a swap test, checking a spare,
+or a stubborn joint (e.g. J6 won't enable). Checks it against the DM-J4310
+datasheet limits, reads its feedback/fault, and can test enable + motion.
+
+```powershell
+yam-test motor --joint J6 --enable --out reports\j6.json   # does J6 go green?
+yam-test motor --id 0x06 --type DM4310 --enable            # by CAN id + type
+yam-test motor --joint J6 --move                           # gentle motion test
+```
+
+`--enable` is the "won't turn green" check: it reports whether the motor actually
+energizes (state `normal`) or is stuck `disabled`. Read-only unless you pass
+`--enable`/`--move`. Great for the swap test — run it on the suspect joint, then
+on a known-good motor, and see if the failure follows the motor or the wiring.
 
 ## Live streaming (`yam-test live`)
 

@@ -242,6 +242,54 @@ def cmd_live(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# motor  (test ONE motor by CAN id / joint name)
+# ---------------------------------------------------------------------------
+def cmd_motor(args) -> int:
+    from .config import load_config
+    from .motor_chain import MotorChain
+    from .dm_motor import MotorType
+    from . import single_motor
+
+    cfg = load_config(args.config)
+    range_deg = None
+    if args.joint:
+        j = next((m for m in cfg.all_motors() if m.name.lower() == args.joint.lower()), None)
+        if j is None:
+            names = ", ".join(m.name for m in cfg.all_motors())
+            print(f"No joint '{args.joint}' in config. Known: {names}")
+            return 2
+        motor_id, motor_type, name, range_deg = j.motor_id, j.motor_type, j.name, j.range_deg
+    else:
+        if args.id is None or args.type is None:
+            print("Give --joint NAME (from config), or both --id and --type.")
+            return 2
+        motor_id, motor_type = args.id, MotorType(args.type)
+        name = args.name or f"M{motor_id:02X}"
+
+    iface, chan = _resolve_iface(args)
+    try:
+        bus = open_bus(iface, chan, args.bitrate)
+    except Exception as exc:
+        print(exc)
+        return 2
+    try:
+        chain = MotorChain(bus, cfg)
+        report = single_motor.test_single_motor(
+            chain, cfg, motor_id, motor_type, name,
+            do_enable=args.enable, do_move=args.move, move_deg=args.move_deg,
+            range_deg=range_deg,
+        )
+    finally:
+        bus.shutdown()
+
+    report.print()
+    if args.out:
+        report.to_json(args.out)
+        print(f"Report written to {args.out}")
+    return 0 if report.worst != Status.FAIL else 1
+
+
+# ---------------------------------------------------------------------------
 # clear-faults  (read each motor's fault code, then clear it)
 # ---------------------------------------------------------------------------
 def cmd_clear_faults(args) -> int:
@@ -523,6 +571,17 @@ def build_parser() -> argparse.ArgumentParser:
     a = sub.add_parser("arm", help="detect whether a leader or follower arm is connected")
     _add_bus_args(a)
     a.set_defaults(func=cmd_arm)
+
+    mo = sub.add_parser("motor", help="test ONE motor by CAN id or --joint, and report")
+    _add_bus_args(mo)
+    mo.add_argument("--joint", help="joint name from config (e.g. J6); or use --id/--type")
+    mo.add_argument("--id", type=lambda x: int(x, 0), help="CAN id, e.g. 6 or 0x06")
+    mo.add_argument("--type", choices=["DM4310", "DM4340"], help="motor type (with --id)")
+    mo.add_argument("--name", help="label for the report")
+    mo.add_argument("--enable", action="store_true", help="test that it ENABLES (goes green)")
+    mo.add_argument("--move", action="store_true", help="gentle motion test (moves the motor)")
+    mo.add_argument("--move-deg", type=float, default=5.0)
+    mo.set_defaults(func=cmd_motor)
 
     cf = sub.add_parser("clear-faults",
                         help="show each motor's fault code and clear latched errors (blinking red)")
