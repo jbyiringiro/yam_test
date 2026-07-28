@@ -278,16 +278,25 @@ def cmd_trigger(args) -> int:
         from rich.live import Live
         from rich.console import Console
         console = Console()
-        print("Squeeze the trigger and press the handle buttons. "
-              + ("Press 'q' to quit." if _HAVE_KEYS else "Press Ctrl+C to quit."))
+        print("Squeeze fully in/out to see the span. For magnet/encoder alignment, "
+              "aim for raw pos ~0.000 rad at REST (matches a good handle). "
+              + ("'r' resets min/max, 'q' quits." if _HAVE_KEYS else "Ctrl+C quits."))
         last_render = 0.0
+        pmin = pmax = rd.position_rad
+        tmin = tmax = rd.trigger
         try:
             with Live(console=console, refresh_per_second=15) as live:
                 while True:
                     now = time.perf_counter()
-                    if _read_key() in ("q", "ESC"):
+                    key = _read_key()
+                    if key in ("q", "ESC"):
                         break
+                    if key == "r":  # reset the captured span
+                        pmin = pmax = rd.position_rad
+                        tmin = tmax = rd.trigger
                     rd = chain.read_encoder(t.encoder_id, t.range_rad, 0.01, 3, invert=invert) or rd
+                    pmin, pmax = min(pmin, rd.position_rad), max(pmax, rd.position_rad)
+                    tmin, tmax = min(tmin, rd.trigger), max(tmax, rd.trigger)
                     if (now - last_render) > (1.0 / 15.0):
                         n = int(round(rd.trigger * 20))
                         bar = "█" * n + "·" * (20 - n)
@@ -296,8 +305,11 @@ def cmd_trigger(args) -> int:
                             f"{t.name} (encoder 0x{t.encoder_id:X})\n"
                             f"  trigger [{bar}] {rd.trigger:.2f}   "
                             f"gripper_cmd={rd.gripper_cmd:.2f}   buttons {btns}\n"
-                            f"  raw: pos={rd.position_rad:+.3f} rad  "
-                            f"vel={rd.velocity_rad:+.3f} rad/s  id={rd.device_id}"
+                            f"  raw:  pos={rd.position_rad:+.3f} rad   "
+                            f"vel={rd.velocity_rad:+.3f} rad/s   id={rd.device_id}\n"
+                            f"  span: pos [{pmin:+.3f} .. {pmax:+.3f}] rad   "
+                            f"trigger [{tmin:.2f} .. {tmax:.2f}]   "
+                            f"(rest pos should be ~0.000)"
                         )
                         last_render = now
                     time.sleep(0.005)
