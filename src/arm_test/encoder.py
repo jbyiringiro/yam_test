@@ -54,12 +54,18 @@ class EncoderReading:
 
 
 def decode_encoder(data: bytes, range_rad: float = ENCODER_DEFAULT_RANGE_RAD,
-                   invert: bool = False) -> EncoderReading:
+                   invert: bool = False, rest_rad=None, full_rad=None) -> EncoderReading:
     """Decode a 6-byte passive-encoder reply frame.
 
-    invert: flip the trigger mapping for a handle whose encoder is zeroed/oriented
-    the opposite way (reads ~1.0 at rest instead of ~0.0, so squeeze/release come
-    out backwards). Set per handle in config or with `trigger --invert`.
+    Trigger normalization, in priority order:
+      1. If `rest_rad` and `full_rad` are calibrated (two-point): map the raw
+         position LINEARLY so rest -> 0.0 and full-squeeze -> 1.0. This corrects
+         ANY zero offset and direction per handle (the fix when the hardware ZP
+         button can't re-zero, e.g. OTP-locked). Set via `trigger --calibrate`.
+      2. Else `abs(pos)/range` (assumes rest ~ encoder-0), with optional `invert`.
+
+    invert: flip the mapping for a handle zeroed the opposite way (ignored when a
+    two-point calibration is present, since that already handles direction).
     """
     if len(data) < 6:
         raise ValueError(f"encoder frame too short: {len(data)} bytes (need 6)")
@@ -69,11 +75,16 @@ def decode_encoder(data: bytes, range_rad: float = ENCODER_DEFAULT_RANGE_RAD,
     button0 = bool(digital & 0x1)
     button1 = bool((digital >> 1) & 0x1)
 
-    # normalize position to a 0..1 trigger value over +/- range_rad
-    clamped = max(-range_rad, min(range_rad, position_rad))
-    trigger = abs(clamped) / range_rad if range_rad else 0.0
-    if invert:
-        trigger = 1.0 - trigger
+    if rest_rad is not None and full_rad is not None and full_rad != rest_rad:
+        # two-point linear calibration: rest -> 0, full -> 1 (direction-agnostic)
+        trigger = (position_rad - rest_rad) / (full_rad - rest_rad)
+        trigger = max(0.0, min(1.0, trigger))
+    else:
+        # normalize position to a 0..1 trigger value over +/- range_rad
+        clamped = max(-range_rad, min(range_rad, position_rad))
+        trigger = abs(clamped) / range_rad if range_rad else 0.0
+        if invert:
+            trigger = 1.0 - trigger
 
     return EncoderReading(
         device_id=device_id,

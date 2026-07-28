@@ -18,6 +18,35 @@ _DEFAULT_CONFIG = os.path.join(
 )
 
 
+def trigger_cal_path(config_path: Optional[str] = None) -> str:
+    """Path to the trigger calibration JSON (kept beside the config so the
+    commented YAML isn't rewritten)."""
+    cfg = config_path or _DEFAULT_CONFIG
+    return os.path.join(os.path.dirname(cfg), "trigger_cal.json")
+
+
+def save_trigger_cal(rest_rad: float, full_rad: float,
+                     config_path: Optional[str] = None) -> str:
+    import json
+    path = trigger_cal_path(config_path)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"rest_rad": rest_rad, "full_rad": full_rad}, f, indent=2)
+    return path
+
+
+def _load_trigger_cal(config_path: Optional[str] = None):
+    import json
+    path = trigger_cal_path(config_path)
+    if not os.path.exists(path):
+        return None, None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        return float(d["rest_rad"]), float(d["full_rad"])
+    except Exception:
+        return None, None
+
+
 @dataclass
 class JointCfg:
     name: str
@@ -34,6 +63,9 @@ class TriggerCfg:
     encoder_id: int
     range_rad: float = 0.7
     invert: bool = False   # flip mapping if this handle's encoder reads reversed
+    # Two-point calibration (from `trigger --calibrate`), overrides invert/range.
+    rest_rad: Optional[float] = None   # raw pos at released/rest -> trigger 0.0
+    full_rad: Optional[float] = None   # raw pos at full squeeze  -> trigger 1.0
 
 
 @dataclass
@@ -127,11 +159,14 @@ def load_config(path: Optional[str] = None, arm: str = "follower") -> ArmConfig:
     leader_trigger = None
     lt = ees.get("leader")
     if lt and lt.get("enabled", True):
+        rest_cal, full_cal = _load_trigger_cal(path)
         leader_trigger = TriggerCfg(
             name=lt.get("name", "trigger"),
             encoder_id=int(lt["encoder_id"]),
             range_rad=float(lt.get("range_rad", 0.7)),
             invert=bool(lt.get("invert", False)),
+            rest_rad=rest_cal,
+            full_rad=full_cal,
         )
 
     cfg = ArmConfig(

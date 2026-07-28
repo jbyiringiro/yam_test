@@ -244,6 +244,51 @@ def cmd_live(args) -> int:
 # ---------------------------------------------------------------------------
 # trigger  (leader trigger-handle readings, read-only)
 # ---------------------------------------------------------------------------
+def _capture_trigger_pos(chain, t, seconds: float = 0.6):
+    """Median raw encoder position over a short window (ignores calibration)."""
+    import time
+    vals = []
+    end = time.time() + seconds
+    while time.time() < end:
+        rd = chain.read_encoder(t.encoder_id, t.range_rad, 0.02, 5)  # raw, no cal
+        if rd is not None:
+            vals.append(rd.position_rad)
+    if not vals:
+        return None
+    vals.sort()
+    return vals[len(vals) // 2]
+
+
+def _calibrate_trigger(chain, t, config_path) -> int:
+    """Two-point calibration: capture rest + full-squeeze, save to trigger_cal.json."""
+    from .config import save_trigger_cal
+    print("\n=== Trigger calibration (two-point) ===")
+    print("Corrects any zero offset / direction in software — the fix when the")
+    print("hardware ZP button can't re-zero (e.g. OTP-locked).")
+    input("\n1) RELEASE the trigger fully (rest position), then press Enter...")
+    rest = _capture_trigger_pos(chain, t)
+    if rest is None:
+        print("No encoder reply — is the LEADER connected + powered?")
+        return 1
+    print(f"   captured rest = {rest:+.4f} rad")
+    input("2) SQUEEZE the trigger fully and hold, then press Enter...")
+    full = _capture_trigger_pos(chain, t)
+    if full is None:
+        print("No encoder reply while squeezing.")
+        return 1
+    print(f"   captured full = {full:+.4f} rad")
+    if abs(full - rest) < 0.05:
+        print(f"\nRest and full are nearly identical ({abs(full - rest):.3f} rad). "
+              "Did the trigger actually move between steps? Not saving.")
+        return 1
+    path = save_trigger_cal(rest, full, config_path)
+    print(f"\nSaved: {path}")
+    print(f"  rest {rest:+.4f} rad -> trigger 0.00")
+    print(f"  full {full:+.4f} rad -> trigger 1.00")
+    print("This handle now reads correctly. Verify: yam-test trigger --align")
+    return 0
+
+
 def cmd_trigger(args) -> int:
     import time
     from .config import load_config
@@ -263,7 +308,10 @@ def cmd_trigger(args) -> int:
     invert = args.invert or t.invert
     try:
         chain = MotorChain(bus, cfg)
-        rd = chain.read_encoder(t.encoder_id, t.range_rad, 0.03, 8, invert=invert)
+        if getattr(args, "calibrate", False):
+            return _calibrate_trigger(chain, t, args.config)
+        rd = chain.read_encoder(t.encoder_id, t.range_rad, 0.03, 8, invert=invert,
+                                rest_rad=t.rest_rad, full_rad=t.full_rad)
         if rd is None:
             print(f"No reply from trigger (encoder 0x{t.encoder_id:X}, reply on "
                   f"0x{t.encoder_id + 1:X}). Is a LEADER arm connected + powered, and "
@@ -306,7 +354,8 @@ def cmd_trigger(args) -> int:
                         break
                     if key == "r":
                         st = fresh_stats()
-                    rd = chain.read_encoder(t.encoder_id, t.range_rad, 0.01, 3, invert=invert) or rd
+                    rd = chain.read_encoder(t.encoder_id, t.range_rad, 0.01, 3, invert=invert,
+                                            rest_rad=t.rest_rad, full_rad=t.full_rad) or rd
                     st["pmin"] = min(st["pmin"], rd.position_rad)
                     st["pmax"] = max(st["pmax"], rd.position_rad)
                     st["tmin"] = min(st["tmin"], rd.trigger)
@@ -702,6 +751,9 @@ def build_parser() -> argparse.ArgumentParser:
     tg.add_argument("--align", action="store_true",
                     help="magnet-alignment mode: live pass/fail checklist (rest zero, "
                          "full squeeze, no wrap) while you position the magnet")
+    tg.add_argument("--calibrate", action="store_true",
+                    help="two-point calibration: capture rest + full-squeeze and save, "
+                         "so this handle reads 0..1 correctly (fixes offset in software)")
     tg.set_defaults(func=cmd_trigger)
 
     mo = sub.add_parser("motor", help="test ONE motor by CAN id or --joint, and report")

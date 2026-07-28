@@ -157,7 +157,8 @@ def check_joint_motion(
 def check_trigger(chain: MotorChain, cfg: ArmConfig) -> CheckResult:
     """Read the leader arm's passive-encoder trigger handle (read-only)."""
     trig = cfg.trigger
-    rd = chain.read_encoder(trig.encoder_id, trig.range_rad, invert=trig.invert)
+    rd = chain.read_encoder(trig.encoder_id, trig.range_rad, invert=trig.invert,
+                            rest_rad=trig.rest_rad, full_rad=trig.full_rad)
     if rd is None:
         return CheckResult(
             f"{trig.name} (encoder 0x{trig.encoder_id:X})", Status.FAIL,

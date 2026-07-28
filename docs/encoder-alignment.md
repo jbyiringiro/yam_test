@@ -86,10 +86,27 @@ Jitter = weak field (gap too big) or noise.
 When those hold, the handle reads correctly with **no `invert` flag** — remove any
 `invert: true` you'd set as a stopgap.
 
-## If you can't hit ~0 at rest mechanically
+## If the offset can't be fixed in hardware → software calibration
 
-If the magnet physically can't be rotated to land rest at 0 (fixed mounting), fall
-back to the software options: `end_effectors.leader.invert` (for a fully reversed
-handle) or the range tuning `range_rad`. But mechanical alignment is the accurate
-fix — a well-centered magnet at the right gap is what gives linear, repeatable
-readings.
+If the magnet is mechanically fine (centered, right gap) but has a **zero offset**
+you can't clear — e.g. the encoder's **ZP (zero-position) button** won't re-zero it
+because the zero is **OTP-locked** (burned once) — use the tool's two-point
+calibration instead:
+
+```powershell
+.\yam.bat trigger --calibrate
+#   1) release the trigger, press Enter   -> captures rest
+#   2) squeeze fully, press Enter          -> captures full
+```
+
+It saves the two raw positions to `config/trigger_cal.json` and from then on maps
+that handle **rest → 0.00, full-squeeze → 1.00** linearly — correcting any offset
+*and* direction, permanently, no hardware change. Verify with `trigger --align`.
+
+> The calibration file is per-handle (device-specific), so it's git-ignored — each
+> rig calibrates its own handle. To recalibrate, just run `--calibrate` again; to
+> clear it, delete `config/trigger_cal.json`.
+
+This is the fallback when hardware alignment/ZP can't fix the offset. A well-centered
+magnet at the right gap is still what gives linear, repeatable readings — calibration
+corrects the *zero*, not a physically misaligned magnet.

@@ -80,6 +80,24 @@ def test_encoder_trigger_clamps_beyond_range():
     assert r.trigger == 1.0
 
 
+def test_encoder_two_point_calibration():
+    # good handle: rest ~ -0.01 rad, full squeeze ~ -0.83 rad (from real hardware)
+    rest, full = -0.01, -0.83
+
+    def frame(pos_rad):
+        raw = int(round(pos_rad * 4096 / enc.TWO_PI))
+        return struct.pack("!BhhB", 1, raw, 0, 0)
+
+    at_rest = enc.decode_encoder(frame(rest), rest_rad=rest, full_rad=full)
+    at_full = enc.decode_encoder(frame(full), rest_rad=rest, full_rad=full)
+    halfway = enc.decode_encoder(frame((rest + full) / 2), rest_rad=rest, full_rad=full)
+    assert abs(at_rest.trigger - 0.0) < 0.02   # rest -> 0
+    assert abs(at_full.trigger - 1.0) < 0.02   # full -> 1
+    assert abs(halfway.trigger - 0.5) < 0.02   # linear midpoint
+    # beyond full still clamps to 1
+    assert enc.decode_encoder(frame(-1.2), rest_rad=rest, full_rad=full).trigger == 1.0
+
+
 def test_encoder_invert_flips_trigger():
     # a handle at rest reads ~0 normally; inverted it should read ~1 (and vice-versa)
     raw = int(round(0.35 * 4096 / enc.TWO_PI))  # 0.35 rad -> trigger 0.5

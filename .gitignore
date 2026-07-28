@@ -12,3 +12,4 @@ env/
 reports/*.json
 reports/*.html
 !reports/.gitkeep
+config/trigger_cal.json    # per-handle trigger calibration (device-specific)
