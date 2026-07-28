@@ -34,14 +34,31 @@ Don't confuse them with the protocol range above (±10 N·m is just the encoding
 | Size / weight | 56 mm ⌀ × 46 mm, ~300 g |
 | Phase resistance / inductance | 650 mΩ / 340 µH |
 
-> **Power budgeting:** a single DM4310 can pull **7.5 A** at peak. With six motors
-> on one bus (the DM4340 shoulders draw more), a 24 V **15 A** supply is *marginal*
-> under simultaneous peak load — a straining shoulder joint can trip it. The
-> toolkit's live torque cap exists to bound this; per-joint it never exceeds the
-> motor's rated torque.
+### Physical ratings — both motors (Damiao parameter table, 24 V variants)
 
-> DM4340 physical ratings are **not** in this manual. The toolkit leaves them
-> unset so it falls back to the configured limit instead of guessing.
+| Parameter | DM4310 (J4310-2EC) | DM4340 (J4340-2EC) |
+|---|---|---|
+| Rated torque | 3 N·m | **9 N·m** |
+| Peak torque | 7 N·m | **27 N·m** |
+| Rated / peak phase current | 3.7 A / 7.2 A | 3 A / **8 A** |
+| Reduction ratio | 10:1 | **40:1** |
+| Torque constant (output) | 0.945 N·m/A | 4.074 N·m/A |
+| No-load / rated speed | 200 / 120 rpm | 52.5 / 36 rpm |
+| Rated power | ~37.7 W | ~33.9 W |
+| Recommended voltage | 15–32 V | 15–32 V |
+| Default PMAX / VMAX / TMAX | 12.5 / 30 / 10 | 12.5 / **8** / 28 |
+
+> **Power budgeting:** each shoulder DM4340 peaks at ~8 A phase; **two shoulders
+> at once ≈ 16 A**, over a 24 V **15 A** supply — which is why simultaneous
+> shoulder load tripped it. The toolkit only lets the *actively-jogged* joint draw
+> its full budget (others hold gently), and per-joint the torque cap never exceeds
+> the motor's rated torque (DM4310 → 3 N·m, DM4340 → 9 N·m).
+
+> **VMAX caveat:** the datasheet default VMAX for the DM4340 is **8 rad/s**, but
+> i2rt drives it as **±10** — so the toolkit uses 10 to match the real arm's
+> velocity decode. If your motors are at the factory default, decoded velocity
+> would read ~25 % high; position and torque are unaffected. `motor --params`
+> (planned) will read each motor's actual VMAX to settle it per unit.
 
 ## Status LED (fastest field diagnostic)
 

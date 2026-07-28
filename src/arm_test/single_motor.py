@@ -29,10 +29,12 @@ def _datasheet_row(motor_type: MotorType) -> CheckResult:
     return CheckResult(
         f"{motor_type.value} datasheet", Status.PASS,
         f"rated {c.rated_torque} N·m / {c.rated_current} A · "
-        f"peak {c.peak_torque} N·m / {c.peak_current} A",
+        f"peak {c.peak_torque} N·m / {c.peak_current} A · "
+        f"{c.reduction_ratio:.0f}:1 · Kt {c.torque_constant} N·m/A",
         {
             "rated_torque_nm": c.rated_torque, "peak_torque_nm": c.peak_torque,
             "rated_current_a": c.rated_current, "peak_current_a": c.peak_current,
+            "reduction_ratio": c.reduction_ratio, "torque_constant_nm_a": c.torque_constant,
         },
     )
 

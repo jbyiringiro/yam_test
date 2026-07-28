@@ -36,10 +36,12 @@ class MotorConstants:
     # Physical ratings from the manufacturer datasheet (None = not on hand).
     # These are real limits: sustained torque above `rated_torque` overheats the
     # motor; `peak_torque` is the short-term ceiling.
-    rated_torque: Optional[float] = None   # N·m continuous
-    peak_torque: Optional[float] = None    # N·m short-term
-    rated_current: Optional[float] = None  # A continuous
-    peak_current: Optional[float] = None   # A short-term
+    rated_torque: Optional[float] = None    # N·m continuous (at output)
+    peak_torque: Optional[float] = None     # N·m short-term (at output)
+    rated_current: Optional[float] = None   # A phase, continuous
+    peak_current: Optional[float] = None    # A phase, short-term
+    reduction_ratio: Optional[float] = None  # gearbox ratio (e.g. 10 or 40)
+    torque_constant: Optional[float] = None  # N·m per A at the output
 
     @property
     def p_min(self) -> float:
@@ -63,19 +65,28 @@ class MotorType(str, Enum):
         return _MOTOR_CONSTANTS[self]
 
 
+# Physical ratings from the Damiao motor parameter table (24 V variants — the
+# YAM Pro runs 24 V). Protocol scaling (p/v/t_max) is separate from these limits.
 _MOTOR_CONSTANTS: dict[MotorType, MotorConstants] = {
-    # DM4310 matches Damiao stock exactly: P ±12.5, V ±30, T ±10.
-    # Physical ratings from DM-J4310-2EC V1.1 manual (Damiao, 2023-11-16):
-    # rated 3 N·m / 2.5 A, peak 7 N·m / 7.5 A, 10:1 gearing, 2x 14-bit encoders.
+    # DM4310 (J4310-2EC V1.1, 24 V): rated 3 N·m / peak 7 N·m, phase current
+    # rated 3.7 A / peak 7.2 A, 10:1, Kt 0.945 N·m/A. Protocol P ±12.5, V ±30, T ±10.
     MotorType.DM4310: MotorConstants(
         p_max=12.5, v_max=30.0, t_max=10.0,
         rated_torque=3.0, peak_torque=7.0,
-        rated_current=2.5, peak_current=7.5,
+        rated_current=3.7, peak_current=7.2,
+        reduction_ratio=10.0, torque_constant=0.945,
     ),
-    # DM4340: i2rt hard-codes V_MAX = 10 (48 V value), T ±28.
-    # Physical ratings not on hand (no DM4340 datasheet) — left None so callers
-    # fall back to the configured limit rather than trusting a guess.
-    MotorType.DM4340: MotorConstants(p_max=12.5, v_max=10.0, t_max=28.0),
+    # DM4340 (J4340-2EC, 24 V): rated 9 N·m / peak 27 N·m, phase current rated
+    # 3 A / peak 8 A, 40:1, Kt 4.074 N·m/A.
+    # NOTE: datasheet default VMAX is 8 rad/s, but i2rt drives DM4340 with V ±10,
+    # so we keep 10 to match the real arm's decode. `motor --params` (planned)
+    # will read the motor's actual VMAX register to settle this per unit.
+    MotorType.DM4340: MotorConstants(
+        p_max=12.5, v_max=10.0, t_max=28.0,
+        rated_torque=9.0, peak_torque=27.0,
+        rated_current=3.0, peak_current=8.0,
+        reduction_ratio=40.0, torque_constant=4.074,
+    ),
 }
 
 
